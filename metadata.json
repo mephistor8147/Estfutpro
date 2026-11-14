@@ -1,0 +1,6 @@
+{
+  "name": "CampoStats — Analisador Estatístico de Futebol",
+  "description": "Analisador estatístico móvel de futebol com busca de dados atualizados na Internet, 5 módulos de desempenho e modelo matemático de Poisson.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
