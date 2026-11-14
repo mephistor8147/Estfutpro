@@ -11,7 +11,7 @@ import type {
   TeamIdentity,
   TeamLastFiveStats,
   TeamStandingsStats,
-} from '../types/football.ts';
+} from '../types/football.js';
 
 interface EspnSearchTeam {
   id: string;
