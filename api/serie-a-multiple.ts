@@ -15,22 +15,40 @@ export default async function handler(req: VercelReq, res: VercelRes) {
     let forceRefresh = false;
     let league =
       typeof req.query?.league === 'string' ? req.query.league : 'bra.1';
+    let count =
+      typeof req.query?.count === 'string' ? Number(req.query.count) : 3;
+    let onlyToday = req.query?.onlyToday === '1';
 
     if (req.method === 'POST') {
       const body = await readJsonBody<{
         forceRefresh?: boolean;
         league?: string;
+        count?: number;
+        onlyToday?: boolean;
       }>(req);
       forceRefresh = Boolean(body?.forceRefresh);
       if (typeof body?.league === 'string' && body.league.trim()) {
         league = body.league;
       }
+      if (body?.count !== undefined) {
+        count = Number(body.count);
+      }
+      if (body?.onlyToday !== undefined) {
+        onlyToday = Boolean(body.onlyToday);
+      }
     }
 
-    const tip = await getSerieAMultipleService(forceRefresh, league);
+    const tip = await getSerieAMultipleService(forceRefresh, league, count, onlyToday);
     res.setHeader('Cache-Control', 'no-store');
     sendJson(res, 200, tip);
   } catch (error: any) {
+    if (error?.message === 'NO_TODAY_MULTIPLE_MATCHES') {
+      sendJson(res, 404, {
+        error:
+          'Nenhum jogo futuro agendado para hoje nesta competição. Desative "Somente hoje" para ver os próximos jogos ou selecione "Jogos de Hoje (Mundial)".',
+      });
+      return;
+    }
     if (
       error?.message === 'NO_UPCOMING_MULTIPLE_MATCHES' ||
       error?.message === 'NO_UPCOMING_SERIE_A_MATCHES'

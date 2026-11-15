@@ -137,6 +137,8 @@ export default function App() {
   const [fixturesError, setFixturesError] = useState<string | null>(null);
 
   const [selectedMultipleLeague, setSelectedMultipleLeague] = useState<string>('bra.1');
+  const [selectedMultipleCount, setSelectedMultipleCount] = useState<3 | 4 | 5>(3);
+  const [onlyTodayMultiple, setOnlyTodayMultiple] = useState<boolean>(false);
   const [multipleTip, setMultipleTip] = useState<SerieAMultipleTip | null>(null);
   const [isLoadingMultiple, setIsLoadingMultiple] = useState(false);
   const [multipleError, setMultipleError] = useState<string | null>(null);
@@ -188,14 +190,24 @@ export default function App() {
   }, [activeTab, settings.championshipScope, fetchFixtures]);
 
   const fetchMultipleTip = useCallback(
-    async (leagueSlug: string, forceRefresh = false) => {
+    async (
+      leagueSlug: string,
+      legCount: 3 | 4 | 5,
+      onlyToday: boolean,
+      forceRefresh = false
+    ) => {
       setIsLoadingMultiple(true);
       setMultipleError(null);
       try {
         const res = await fetch('/api/serie-a-multiple', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ league: leagueSlug, forceRefresh }),
+          body: JSON.stringify({
+            league: leagueSlug,
+            count: legCount,
+            onlyToday,
+            forceRefresh,
+          }),
         });
         const json = await res.json();
         if (!res.ok) {
@@ -216,8 +228,13 @@ export default function App() {
   );
 
   useEffect(() => {
-    fetchMultipleTip(selectedMultipleLeague, false);
-  }, [selectedMultipleLeague, fetchMultipleTip]);
+    fetchMultipleTip(
+      selectedMultipleLeague,
+      selectedMultipleCount,
+      onlyTodayMultiple,
+      false
+    );
+  }, [selectedMultipleLeague, selectedMultipleCount, onlyTodayMultiple, fetchMultipleTip]);
 
   const runAnalysis = useCallback(
     async (home: string, away: string, comp: string, forceRefresh = false) => {
@@ -440,10 +457,21 @@ export default function App() {
             <SerieAMultipleCard
               tip={multipleTip}
               selectedLeague={selectedMultipleLeague}
+              selectedCount={selectedMultipleCount}
+              onlyToday={onlyTodayMultiple}
               isLoading={isLoadingMultiple}
               error={multipleError}
               onChangeLeague={(slug) => setSelectedMultipleLeague(slug)}
-              onRefresh={() => fetchMultipleTip(selectedMultipleLeague, true)}
+              onChangeCount={(cnt) => setSelectedMultipleCount(cnt)}
+              onToggleOnlyToday={(next) => setOnlyTodayMultiple(next)}
+              onRefresh={() =>
+                fetchMultipleTip(
+                  selectedMultipleLeague,
+                  selectedMultipleCount,
+                  onlyTodayMultiple,
+                  true
+                )
+              }
               onSelectLeg={handleSelectMultipleLeg}
             />
 

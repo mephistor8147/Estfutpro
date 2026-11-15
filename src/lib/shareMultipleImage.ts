@@ -20,13 +20,13 @@ export function formatBrlCurrency(value: number): string {
 
 export function buildWhatsappSummaryText(payload: MultipleImagePayload): string {
   const { tip, legOdds, totalOdd, stake, potentialReturn, potentialProfit } = payload;
-  const isWorld = tip.leagueSlug === 'world';
+  const isMultiLeague = tip.leagueSlug === 'world' || tip.leagueSlug === 'today';
   const lines = [
     `*Dica Quente · ${tip.competition}* (CampoStats)`,
     ``,
     ...tip.legs.map((leg, i) => {
       const odd = legOdds[i] ?? 1;
-      const compSuffix = isWorld && leg.competition ? ` · ${leg.competition}` : '';
+      const compSuffix = isMultiLeague && leg.competition ? ` · ${leg.competition}` : '';
       return `${i + 1}. *${leg.homeTeam} × ${leg.awayTeam}* (${leg.dateLabel}${compSuffix})\n   Palpite: *${leg.marketLabel}* · ${leg.probabilityPct}% · Odd ${odd.toFixed(2)}`;
     }),
     ``,
@@ -185,7 +185,7 @@ export async function generateMultipleTipPng(
   ctx.stroke();
 
   cursorY += 28;
-  const isWorld = tip.leagueSlug === 'world';
+  const isMultiLeague = tip.leagueSlug === 'world' || tip.leagueSlug === 'today';
 
   // Leg Cards
   tip.legs.forEach((leg, idx) => {
@@ -202,11 +202,11 @@ export async function generateMultipleTipPng(
     const innerX = paddingX + 32;
     const innerRight = paddingX + cardWidth - 32;
 
-    // Top row: Jogo # + (league in world mode) + date | xG
+    // Top row: Jogo # + (league in multi-league mode) + date | xG
     ctx.fillStyle = '#94A3B8';
     ctx.font = '600 22px "Plus Jakarta Sans", system-ui, sans-serif';
     const topLeftLabel =
-      isWorld && leg.competition
+      isMultiLeague && leg.competition
         ? `JOGO ${idx + 1} · ${leg.competition.toUpperCase()} · ${leg.dateLabel.toUpperCase()}`
         : `JOGO ${idx + 1} · ${leg.dateLabel.toUpperCase()}`;
     ctx.fillText(topLeftLabel, innerX, cardY + 42, cardWidth - 260);

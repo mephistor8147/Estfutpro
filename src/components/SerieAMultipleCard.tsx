@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
+  Calendar,
   Check,
   Copy,
   Download,
@@ -24,9 +25,13 @@ import type { SerieAMultipleLeg, SerieAMultipleTip } from '../types/football';
 interface SerieAMultipleCardProps {
   tip: SerieAMultipleTip | null;
   selectedLeague: string;
+  selectedCount: 3 | 4 | 5;
+  onlyToday: boolean;
   isLoading: boolean;
   error: string | null;
   onChangeLeague: (leagueSlug: string) => void;
+  onChangeCount: (count: 3 | 4 | 5) => void;
+  onToggleOnlyToday: (next: boolean) => void;
   onRefresh: () => void;
   onSelectLeg: (leg: SerieAMultipleLeg) => void;
 }
@@ -45,9 +50,13 @@ function computeFairLegOdd(probabilityPct: number): string {
 export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
   tip,
   selectedLeague,
+  selectedCount,
+  onlyToday,
   isLoading,
   error,
   onChangeLeague,
+  onChangeCount,
+  onToggleOnlyToday,
   onRefresh,
   onSelectLeg,
 }) => {
@@ -61,6 +70,9 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
   const groupedCompetitions = useMemo(
     () => ({
       destaques: MULTIPLE_COMPETITIONS.filter((c) => c.region === 'destaques'),
+      brasil_regional: MULTIPLE_COMPETITIONS.filter(
+        (c) => c.region === 'brasil_regional'
+      ),
       americas: MULTIPLE_COMPETITIONS.filter((c) => c.region === 'americas'),
       europa: MULTIPLE_COMPETITIONS.filter((c) => c.region === 'europa'),
       mundo: MULTIPLE_COMPETITIONS.filter((c) => c.region === 'mundo'),
@@ -208,7 +220,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
       ) {
         try {
           await navigator.share({
-            title: 'Dica Quente · Múltipla da Série A',
+            title: `Dica Quente · ${currentPayload.tip.competition}`,
             text: summaryText,
             files: [imageFile],
           });
@@ -251,13 +263,28 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
       }).format(new Date(tip.updatedAt))
     : null;
 
+  const effectiveOnlyToday = onlyToday || selectedLeague === 'today';
+
+  const isTipMismatched =
+    !tip ||
+    tip.leagueSlug !== selectedLeague ||
+    (tip.requestedCount ?? tip.legs.length) !== selectedCount ||
+    Boolean(tip.onlyToday) !== effectiveOnlyToday;
+
+  const gridColsClass =
+    selectedCount === 4
+      ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3'
+      : selectedCount === 5
+        ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'
+        : 'grid grid-cols-1 md:grid-cols-3 gap-3';
+
   return (
     <section
       aria-label="Dica quente de Múltipla"
       className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 shadow-xs mb-5"
     >
       {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
+      <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3 mb-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Flame className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -266,7 +293,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
             </h2>
           </div>
 
-          {tip && tip.leagueSlug === selectedLeague ? (
+          {!isTipMismatched && tip ? (
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
               {tip.competition} · {tip.legs.length}{' '}
               {tip.legs.length === 1 ? 'seleção' : 'seleções'} · Prob. combinada{' '}
@@ -287,6 +314,32 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div
+            role="group"
+            aria-label="Quantidade de times na múltipla"
+            className="inline-flex items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-1 min-h-[44px]"
+          >
+            {([3, 4, 5] as const).map((cnt) => {
+              const active = selectedCount === cnt;
+              return (
+                <button
+                  key={cnt}
+                  type="button"
+                  onClick={() => onChangeCount(cnt)}
+                  disabled={isLoading}
+                  aria-pressed={active}
+                  className={`min-h-[34px] px-2.5 rounded-lg text-xs font-semibold tabular-nums whitespace-nowrap transition-colors disabled:opacity-60 ${
+                    active
+                      ? 'bg-emerald-700 dark:bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {cnt} times
+                </button>
+              );
+            })}
+          </div>
+
           <div className="relative flex-1 sm:flex-initial min-w-[210px]">
             <Globe className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" />
             <select
@@ -303,14 +356,21 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                   </option>
                 ))}
               </optgroup>
-              <optgroup label="Europa">
+              <optgroup label="Brasil · Nacionais e Regionais">
+                {groupedCompetitions.brasil_regional.map((comp) => (
+                  <option key={comp.slug} value={comp.slug}>
+                    {comp.label}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Europa & Seleções">
                 {groupedCompetitions.europa.map((comp) => (
                   <option key={comp.slug} value={comp.slug}>
                     {comp.label}
                   </option>
                 ))}
               </optgroup>
-              <optgroup label="Brasil & Américas">
+              <optgroup label="Américas & Mundo">
                 {groupedCompetitions.americas.map((comp) => (
                   <option key={comp.slug} value={comp.slug}>
                     {comp.label}
@@ -327,6 +387,26 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
 
           <button
             type="button"
+            onClick={() => onToggleOnlyToday(!onlyToday)}
+            disabled={isLoading || selectedLeague === 'today'}
+            aria-pressed={effectiveOnlyToday}
+            title={
+              selectedLeague === 'today'
+                ? 'Modo Jogos de Hoje ativo'
+                : 'Filtrar apenas partidas programadas para o dia atual'
+            }
+            className={`min-h-[44px] px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition-colors shrink-0 whitespace-nowrap disabled:opacity-75 ${
+              effectiveOnlyToday
+                ? 'border-emerald-700 dark:border-emerald-500 bg-emerald-700 dark:bg-emerald-600 text-white'
+                : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5 shrink-0" />
+            <span>Somente hoje</span>
+          </button>
+
+          <button
+            type="button"
             onClick={onRefresh}
             disabled={isLoading}
             className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-60"
@@ -338,9 +418,9 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
       </div>
 
       {/* Body States */}
-      {isLoading && (!tip || tip.leagueSlug !== selectedLeague) ? (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {[0, 1, 2].map((idx) => (
+      {isLoading && isTipMismatched ? (
+        <div className={gridColsClass}>
+          {Array.from({ length: selectedCount }).map((_, idx) => (
             <div
               key={idx}
               className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 p-3.5 space-y-2.5 animate-pulse"
@@ -352,17 +432,26 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
             </div>
           ))}
         </div>
-      ) : error && (!tip || tip.leagueSlug !== selectedLeague) ? (
+      ) : error && isTipMismatched ? (
         <div className="rounded-xl border border-amber-200 dark:border-amber-800/70 bg-amber-50/70 dark:bg-amber-950/30 p-3.5 flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs sm:text-sm text-amber-900 dark:text-amber-200">{error}</p>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {selectedLeague !== 'world' && (
+            {selectedLeague !== 'today' && (
               <button
                 type="button"
-                onClick={() => onChangeLeague('world')}
+                onClick={() => onChangeLeague('today')}
                 className="min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold"
               >
-                Ver Principais do Mundo
+                Ver Jogos de Hoje (Mundial)
+              </button>
+            )}
+            {onlyToday && selectedLeague !== 'today' && (
+              <button
+                type="button"
+                onClick={() => onToggleOnlyToday(false)}
+                className="min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 hover:bg-amber-100/60 dark:hover:bg-amber-950/60 text-amber-900 dark:text-amber-100 text-xs font-semibold"
+              >
+                Desativar Somente hoje
               </button>
             )}
             <button
@@ -376,8 +465,8 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
         </div>
       ) : tip && tip.legs.length > 0 ? (
         <>
-          {/* 3 Legs Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* Legs Grid */}
+          <div className={gridColsClass}>
             {tip.legs.map((leg, idx) => (
               <article
                 key={`${leg.homeTeam}-${leg.awayTeam}-${idx}`}
@@ -387,7 +476,8 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                   <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                     <span className="font-medium truncate">
                       Jogo {idx + 1}
-                      {tip.leagueSlug === 'world' && leg.competition
+                      {(tip.leagueSlug === 'world' || tip.leagueSlug === 'today') &&
+                      leg.competition
                         ? ` · ${leg.competition}`
                         : ''}{' '}
                       · {leg.dateLabel}

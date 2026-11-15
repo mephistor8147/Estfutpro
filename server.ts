@@ -91,9 +91,24 @@ async function startServer() {
           : typeof req.query?.league === 'string'
             ? req.query.league
             : 'bra.1';
-      const tip = await getSerieAMultipleService(forceRefresh, league);
+      const countRaw = req.body?.count ?? req.query?.count ?? 3;
+      const onlyToday =
+        Boolean(req.body?.onlyToday) || req.query?.onlyToday === '1';
+      const tip = await getSerieAMultipleService(
+        forceRefresh,
+        league,
+        Number(countRaw),
+        onlyToday
+      );
       res.json(tip);
     } catch (error: any) {
+      if (error?.message === 'NO_TODAY_MULTIPLE_MATCHES') {
+        res.status(404).json({
+          error:
+            'Nenhum jogo futuro agendado para hoje nesta competição. Desative "Somente hoje" para ver os próximos jogos ou selecione "Jogos de Hoje (Mundial)".',
+        });
+        return;
+      }
       if (
         error?.message === 'NO_UPCOMING_MULTIPLE_MATCHES' ||
         error?.message === 'NO_UPCOMING_SERIE_A_MATCHES'

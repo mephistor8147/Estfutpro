@@ -687,22 +687,30 @@ Nota sobre contextualImpactHome e contextualImpactAway: número conservador entr
 
 export async function getSerieAMultipleService(
   forceRefresh = false,
-  leagueInput = 'bra.1'
+  leagueInput = 'bra.1',
+  countInput = 3,
+  onlyToday = false
 ): Promise<SerieAMultipleTip> {
   const normalized = String(leagueInput || 'bra.1').trim().toLowerCase();
   const leagueKey = MULTIPLE_COMPETITION_SET.has(normalized) ? normalized : 'bra.1';
+  const parsedCount = Number(countInput);
+  const legCount = parsedCount === 4 || parsedCount === 5 ? parsedCount : 3;
+  const todayFlag = Boolean(onlyToday) || leagueKey === 'today';
+  const cacheKey = `${leagueKey}::${legCount}::${todayFlag ? 'today' : 'next'}`;
 
-  const cached = multipleCache.get(leagueKey);
+  const cached = multipleCache.get(cacheKey);
   if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
     return cached.tip;
   }
 
-  const tip = await buildMultipleTipViaEspn(leagueKey);
+  const tip = await buildMultipleTipViaEspn(leagueKey, legCount, todayFlag);
   if (!tip || tip.legs.length === 0) {
-    throw new Error('NO_UPCOMING_MULTIPLE_MATCHES');
+    throw new Error(
+      todayFlag ? 'NO_TODAY_MULTIPLE_MATCHES' : 'NO_UPCOMING_MULTIPLE_MATCHES'
+    );
   }
 
-  multipleCache.set(leagueKey, {
+  multipleCache.set(cacheKey, {
     tip,
     expiresAt: Date.now() + MULTIPLE_TTL_MS,
   });

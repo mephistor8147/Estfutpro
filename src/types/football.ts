@@ -230,6 +230,8 @@ export interface SerieAMultipleLeg {
 
 export interface SerieAMultipleTip {
   leagueSlug?: string;
+  requestedCount?: number;
+  onlyToday?: boolean;
   competition: string;
   updatedAt: string;
   legs: SerieAMultipleLeg[];
