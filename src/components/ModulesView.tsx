@@ -67,7 +67,7 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
     <div className="space-y-4">
       {/* Sub-navigation bar */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-1.5 overflow-x-auto no-scrollbar">
-        <div className="flex items-center gap-1 min-w-max">
+        <div className="flex md:grid md:grid-cols-3 xl:grid-cols-6 items-center gap-1 min-w-max md:min-w-0">
           {tabs.map((tab) => {
             const active = activeSubTab === tab.id;
             return (
@@ -75,7 +75,7 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveSubTab(tab.id)}
-                className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap shrink-0 flex items-center justify-center ${
                   active
                     ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -106,15 +106,15 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
               </span>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-center font-mono text-xs tabular-nums">
+            <div className="overflow-x-auto -mx-1 px-1">
+              <table className="w-full border-collapse text-center font-mono text-[11px] sm:text-xs tabular-nums">
                 <thead>
                   <tr>
-                    <th className="p-2 text-[11px] font-medium text-slate-400 dark:text-slate-500 text-left">
+                    <th className="p-1.5 sm:p-2 text-[10px] sm:text-[11px] font-medium text-slate-400 dark:text-slate-500 text-left whitespace-nowrap">
                       {data.homeTeam.shortCode} \ {data.awayTeam.shortCode}
                     </th>
                     {[0, 1, 2, 3, 4].map((awayG) => (
-                      <th key={awayG} className="p-2 font-semibold text-blue-700 dark:text-blue-400">
+                      <th key={awayG} className="p-1.5 sm:p-2 font-semibold text-blue-700 dark:text-blue-400">
                         {awayG}
                       </th>
                     ))}
@@ -123,7 +123,7 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
                 <tbody>
                   {[0, 1, 2, 3, 4].map((homeG) => (
                     <tr key={homeG} className="border-t border-slate-100 dark:border-slate-800">
-                      <th className="p-2 font-semibold text-emerald-700 dark:text-emerald-400 text-left">
+                      <th className="p-1.5 sm:p-2 font-semibold text-emerald-700 dark:text-emerald-400 text-left">
                         {homeG}
                       </th>
                       {[0, 1, 2, 3, 4].map((awayG) => {
@@ -146,9 +146,9 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
                                 : 'bg-blue-50/40 dark:bg-blue-950/30 text-slate-700 dark:text-slate-300';
 
                         return (
-                          <td key={awayG} className="p-1">
+                          <td key={awayG} className="p-0.5 sm:p-1">
                             <div
-                              className={`rounded-lg py-2 px-1.5 ${cellBg}`}
+                              className={`rounded-lg py-1.5 sm:py-2 px-1 sm:px-1.5 ${cellBg}`}
                               title={`${homeG} x ${awayG}: ${prob}%`}
                             >
                               {prob.toFixed(1)}%
@@ -325,8 +325,8 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
               key={team.name}
               className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5"
             >
-              <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div>
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="min-w-0">
                   <span
                     className={`text-xs font-semibold ${
                       tone === 'emerald'
@@ -336,9 +336,11 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
                   >
                     {label}
                   </span>
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">{team.name}</h3>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 truncate">
+                    {team.name}
+                  </h3>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 shrink-0">
                   {stats.matches.map((m, idx) => (
                     <span
                       key={idx}
@@ -352,7 +354,7 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-4 gap-2 py-3 border-b border-slate-100 dark:border-slate-800 text-center">
+              <div className="grid grid-cols-2 min-[400px]:grid-cols-4 gap-2 py-3 border-b border-slate-100 dark:border-slate-800 text-center">
                 <div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400">V · E · D</div>
                   <div className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">
@@ -734,10 +736,12 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
                 key={team.name}
                 className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 space-y-3"
               >
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
-                  <h4 className="font-bold text-slate-900 dark:text-slate-100">{team.name}</h4>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
+                  <h4 className="font-bold text-slate-900 dark:text-slate-100 min-w-0 truncate">
+                    {team.name}
+                  </h4>
                   <span
-                    className={`text-xs font-mono tabular-nums ${
+                    className={`text-xs font-mono tabular-nums shrink-0 ${
                       tone === 'emerald'
                         ? 'text-emerald-700 dark:text-emerald-400'
                         : 'text-blue-700 dark:text-blue-400'

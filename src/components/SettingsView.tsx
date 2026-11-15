@@ -95,11 +95,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </p>
           </div>
 
-          <div className="inline-flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700">
+          <div className="inline-flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700 w-full sm:w-auto">
             <button
               type="button"
               onClick={() => onChangeTheme('light')}
-              className={`min-h-[40px] px-3.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors ${
+              className={`flex-1 sm:flex-initial min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors ${
                 theme === 'light'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -111,7 +111,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <button
               type="button"
               onClick={() => onChangeTheme('dark')}
-              className={`min-h-[40px] px-3.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors ${
+              className={`flex-1 sm:flex-initial min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors ${
                 theme === 'dark'
                   ? 'bg-slate-950 text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -165,13 +165,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           Desativar módulos recalcula o modelo matemático instantaneamente.
         </p>
 
-        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 divide-y md:divide-y-0 md:gap-y-2 divide-slate-100 dark:divide-slate-800">
           {moduleOptions.map((item) => {
             const enabled = settings.activeModules[item.key];
             return (
               <div
                 key={item.key}
-                className="py-3 flex items-center justify-between gap-4"
+                className="py-3 md:py-2.5 md:border-b md:border-slate-100 md:dark:border-slate-800 flex items-center justify-between gap-3 sm:gap-4"
               >
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
@@ -182,15 +182,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <button
                   type="button"
                   role="switch"
+                  aria-label={item.label}
                   aria-checked={enabled}
                   onClick={() => toggleModule(item.key)}
-                  className={`relative shrink-0 w-12 h-7 rounded-full transition-colors p-1 flex items-center ${
-                    enabled
-                      ? 'bg-emerald-700 dark:bg-emerald-600 justify-end'
-                      : 'bg-slate-300 dark:bg-slate-700 justify-start'
-                  }`}
+                  className="min-h-[44px] min-w-[52px] inline-flex items-center justify-end shrink-0"
                 >
-                  <span className="w-5 h-5 rounded-full bg-white shadow-xs" />
+                  <span
+                    className={`w-12 h-7 rounded-full transition-colors p-1 flex items-center ${
+                      enabled
+                        ? 'bg-emerald-700 dark:bg-emerald-600 justify-end'
+                        : 'bg-slate-300 dark:bg-slate-700 justify-start'
+                    }`}
+                  >
+                    <span className="w-5 h-5 rounded-full bg-white shadow-xs" />
+                  </span>
                 </button>
               </div>
             );

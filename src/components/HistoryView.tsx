@@ -153,7 +153,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
       {/* List of saved items */}
       {filtered.length === 0 ? (
-        <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-8 text-center">
+        <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-6 sm:p-8 text-center">
           <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
             Nenhuma previsão salva ainda
           </h3>
@@ -162,7 +162,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           </p>
         </section>
       ) : (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
           {filtered.map((item) => {
             const isEditing = editingId === item.id;
             const hasResult = item.actualScore !== undefined;
@@ -182,16 +182,16 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             return (
               <article
                 key={item.id}
-                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-3"
+                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 flex flex-col justify-between gap-3"
               >
-                <div className="flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-                  <span className="font-medium text-slate-700 dark:text-slate-300 truncate">
-                    {item.competition} · {dateText}
-                  </span>
-                  <div className="flex items-center gap-1 shrink-0">
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <span className="font-medium text-slate-700 dark:text-slate-300 truncate">
+                      {item.competition} · {dateText}
+                    </span>
                     {hasResult && (
                       <span
-                        className={`inline-flex items-center gap-1 font-semibold ${
+                        className={`inline-flex items-center gap-1 font-semibold shrink-0 ${
                           isHit
                             ? 'text-emerald-700 dark:text-emerald-400'
                             : 'text-rose-700 dark:text-rose-400'
@@ -206,60 +206,62 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       </span>
                     )}
                   </div>
-                </div>
 
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <TeamCrest
-                      name={item.homeTeam.name}
-                      shortCode={item.homeTeam.shortCode}
-                      primaryColor={item.homeTeam.primaryColor}
-                      secondaryColor={item.homeTeam.secondaryColor}
-                      size="sm"
-                    />
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
-                        {item.homeTeam.name} × {item.awayTeam.name}
-                      </div>
-                      <div className="text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums mt-0.5">
-                        {item.predictedHomePct}% · {item.predictedDrawPct}% · {item.predictedAwayPct}% · Placar modelo {item.mostLikelyScore}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <TeamCrest
+                        name={item.homeTeam.name}
+                        shortCode={item.homeTeam.shortCode}
+                        primaryColor={item.homeTeam.primaryColor}
+                        secondaryColor={item.homeTeam.secondaryColor}
+                        size="sm"
+                      />
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2 sm:truncate">
+                          {item.homeTeam.name} × {item.awayTeam.name}
+                        </div>
+                        <div className="text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums mt-0.5">
+                          {item.predictedHomePct}% · {item.predictedDrawPct}% · {item.predictedAwayPct}% · Placar {item.mostLikelyScore}
+                        </div>
                       </div>
                     </div>
+
+                    {hasResult && item.actualScore && (
+                      <div className="shrink-0 px-3 py-1.5 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-mono text-sm font-bold tabular-nums">
+                        {item.actualScore.homeGoals} x {item.actualScore.awayGoals}
+                      </div>
+                    )}
                   </div>
-
-                  {hasResult && item.actualScore && (
-                    <div className="shrink-0 px-3 py-1.5 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-mono text-sm font-bold tabular-nums">
-                      {item.actualScore.homeGoals} x {item.actualScore.awayGoals}
-                    </div>
-                  )}
                 </div>
 
                 {isEditing ? (
                   <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-2">
-                    <label className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300">
-                      <span>{item.homeTeam.shortCode}</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={20}
-                        value={homeInput}
-                        onChange={(e) => setHomeInput(e.target.value)}
-                        className="w-16 min-h-[44px] px-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-center font-mono font-semibold text-slate-900 dark:text-slate-100"
-                      />
-                    </label>
-                    <span className="text-xs font-mono text-slate-400 dark:text-slate-500">x</span>
-                    <label className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300">
-                      <input
-                        type="number"
-                        min={0}
-                        max={20}
-                        value={awayInput}
-                        onChange={(e) => setAwayInput(e.target.value)}
-                        className="w-16 min-h-[44px] px-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-center font-mono font-semibold text-slate-900 dark:text-slate-100"
-                      />
-                      <span>{item.awayTeam.shortCode}</span>
-                    </label>
-                    <div className="flex items-center gap-2 ml-auto">
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300">
+                        <span className="font-mono font-semibold">{item.homeTeam.shortCode}</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={20}
+                          value={homeInput}
+                          onChange={(e) => setHomeInput(e.target.value)}
+                          className="w-16 min-h-[44px] px-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-center font-mono font-semibold text-slate-900 dark:text-slate-100"
+                        />
+                      </label>
+                      <span className="text-xs font-mono text-slate-400 dark:text-slate-500">x</span>
+                      <label className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300">
+                        <input
+                          type="number"
+                          min={0}
+                          max={20}
+                          value={awayInput}
+                          onChange={(e) => setAwayInput(e.target.value)}
+                          className="w-16 min-h-[44px] px-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-center font-mono font-semibold text-slate-900 dark:text-slate-100"
+                        />
+                        <span className="font-mono font-semibold">{item.awayTeam.shortCode}</span>
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-auto justify-end">
                       <button
                         type="button"
                         onClick={() => setEditingId(null)}
@@ -277,14 +279,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                  <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         onClick={() => startEdit(item)}
-                        className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 inline-flex items-center gap-1.5"
+                        className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 inline-flex items-center gap-1.5 whitespace-nowrap"
                       >
-                        <Edit3 className="w-3.5 h-3.5" />
+                        <Edit3 className="w-3.5 h-3.5 shrink-0" />
                         <span>{hasResult ? 'Editar placar' : 'Registrar placar real'}</span>
                       </button>
 
@@ -292,7 +294,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                         <button
                           type="button"
                           onClick={() => onLoadSnapshot(item)}
-                          className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200/80 dark:border-emerald-800"
+                          className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200/80 dark:border-emerald-800 whitespace-nowrap"
                         >
                           Abrir análise
                         </button>

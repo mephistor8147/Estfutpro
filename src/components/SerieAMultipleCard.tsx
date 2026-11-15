@@ -273,9 +273,9 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
 
   const gridColsClass =
     selectedCount === 4
-      ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3'
+      ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3'
       : selectedCount === 5
-        ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'
+        ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3'
         : 'grid grid-cols-1 md:grid-cols-3 gap-3';
 
   return (
@@ -288,7 +288,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Flame className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-            <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
+            <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight text-balance">
               Dica quente · {activeCompOption.label}
             </h2>
           </div>
@@ -313,11 +313,11 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto xl:justify-end">
           <div
             role="group"
             aria-label="Quantidade de times na múltipla"
-            className="inline-flex items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-1 min-h-[44px]"
+            className="w-full sm:w-auto grid grid-cols-3 sm:inline-flex items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-1 min-h-[44px]"
           >
             {([3, 4, 5] as const).map((cnt) => {
               const active = selectedCount === cnt;
@@ -328,7 +328,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                   onClick={() => onChangeCount(cnt)}
                   disabled={isLoading}
                   aria-pressed={active}
-                  className={`min-h-[34px] px-2.5 rounded-lg text-xs font-semibold tabular-nums whitespace-nowrap transition-colors disabled:opacity-60 ${
+                  className={`min-h-[36px] px-2.5 rounded-lg text-xs font-semibold tabular-nums whitespace-nowrap transition-colors disabled:opacity-60 ${
                     active
                       ? 'bg-emerald-700 dark:bg-emerald-600 text-white shadow-xs'
                       : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -340,7 +340,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
             })}
           </div>
 
-          <div className="relative flex-1 sm:flex-initial min-w-[210px]">
+          <div className="relative w-full sm:w-auto sm:flex-1 sm:min-w-[210px] xl:flex-initial">
             <Globe className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" />
             <select
               aria-label="Selecionar competição para dicas quentes"
@@ -395,7 +395,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                 ? 'Modo Jogos de Hoje ativo'
                 : 'Filtrar apenas partidas programadas para o dia atual'
             }
-            className={`min-h-[44px] px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition-colors shrink-0 whitespace-nowrap disabled:opacity-75 ${
+            className={`flex-1 sm:flex-initial min-h-[44px] px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-75 ${
               effectiveOnlyToday
                 ? 'border-emerald-700 dark:border-emerald-500 bg-emerald-700 dark:bg-emerald-600 text-white'
                 : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
@@ -409,9 +409,9 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
             type="button"
             onClick={onRefresh}
             disabled={isLoading}
-            className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-60"
+            className="flex-1 sm:flex-initial min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
             <span>Atualizar</span>
           </button>
         </div>
@@ -505,7 +505,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                   </p>
                 </div>
 
-                <div className="pt-2 border-t border-slate-200/70 dark:border-slate-800/80 flex items-center justify-between gap-2">
+                <div className="pt-2 border-t border-slate-200/70 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
                   <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
                     <span className="font-semibold">Odd</span>
                     <input
@@ -514,14 +514,14 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                       aria-label={`Odd para ${leg.homeTeam} × ${leg.awayTeam}`}
                       value={legOddInputs[idx] ?? computeFairLegOdd(leg.probabilityPct)}
                       onChange={(e) => handleLegOddChange(idx, e.target.value)}
-                      className="w-20 min-h-[38px] px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono tabular-nums text-xs font-bold text-slate-900 dark:text-slate-100 text-center focus:outline-none focus:ring-2 focus:ring-emerald-600/30 focus:border-emerald-700 dark:focus:border-emerald-500"
+                      className="w-20 min-h-[44px] px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono tabular-nums text-xs font-bold text-slate-900 dark:text-slate-100 text-center focus:outline-none focus:ring-2 focus:ring-emerald-600/30 focus:border-emerald-700 dark:focus:border-emerald-500"
                     />
                   </label>
 
                   <button
                     type="button"
                     onClick={() => onSelectLeg(leg)}
-                    className="min-h-[38px] px-2 py-1 rounded-lg text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 inline-flex items-center gap-1 transition-colors shrink-0"
+                    className="min-h-[44px] px-2.5 py-1 rounded-lg text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 inline-flex items-center gap-1 transition-colors shrink-0 whitespace-nowrap"
                   >
                     <span>Analisar</span>
                     <ArrowRight className="w-3.5 h-3.5" />
@@ -533,21 +533,21 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
 
           {/* Odd Calculator + Potential Return + WhatsApp Share Bar */}
           <div className="mt-3.5 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-950/70 p-3.5 sm:p-4 space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 items-end">
               {/* Total Odd Field */}
               <div>
-                <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex flex-wrap items-center justify-between gap-1 mb-1">
                   <label
                     htmlFor="multiple-total-odd"
                     className="text-xs font-semibold text-slate-700 dark:text-slate-300"
                   >
-                    Odd da múltipla
+                    Odd total
                   </label>
                   {isCustomOddActive && (
                     <button
                       type="button"
                       onClick={handleResetFairOdds}
-                      className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400 hover:underline inline-flex items-center gap-1"
+                      className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400 hover:underline inline-flex items-center gap-1 whitespace-nowrap"
                     >
                       <RotateCcw className="w-3 h-3" />
                       <span>Odd justa</span>
@@ -573,7 +573,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
               <div>
                 <label
                   htmlFor="multiple-stake"
-                  className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                  className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 truncate"
                 >
                   Valor simulado (R$)
                 </label>
@@ -589,11 +589,11 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
               </div>
 
               {/* Potential Return Display */}
-              <div className="min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/70 flex flex-col justify-center">
+              <div className="col-span-2 sm:col-span-1 min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/70 flex flex-col justify-center">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
                   Ganho potencial
                 </span>
-                <div className="flex items-baseline justify-between gap-2 tabular-nums">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 tabular-nums">
                   <span className="font-mono text-base sm:text-lg font-bold text-emerald-700 dark:text-emerald-400">
                     {formatBrlCurrency(potentialReturn)}
                   </span>
@@ -604,7 +604,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
               </div>
 
               {/* Share & Image Actions */}
-              <div className="flex items-center gap-2">
+              <div className="col-span-2 sm:col-span-1 flex items-center gap-2">
                 <button
                   type="button"
                   onClick={handleShareWhatsapp}
@@ -636,15 +636,16 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
             {/* Inline Share Feedback + Generated Image Preview / WhatsApp Link Fallback */}
             {(shareFeedback || generatedPreview) && (
               <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex flex-col min-[380px]:flex-row items-start min-[380px]:items-center gap-3 min-w-0 w-full">
                   {generatedPreview && (
                     <img
                       src={generatedPreview.dataUrl}
                       alt="Prévia da imagem da múltipla para WhatsApp"
+                      referrerPolicy="no-referrer"
                       className="w-16 h-20 object-cover rounded-lg border border-slate-300 dark:border-slate-700 shrink-0"
                     />
                   )}
-                  <div className="min-w-0 space-y-1">
+                  <div className="min-w-0 space-y-2 flex-1">
                     {shareFeedback && (
                       <p className="text-xs font-medium text-slate-700 dark:text-slate-200">
                         {shareFeedback}
@@ -655,9 +656,9 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                         href={whatsappHref}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="min-h-[36px] px-3 py-1.5 rounded-lg bg-[#25D366] hover:bg-[#1ebe5d] text-slate-950 text-xs font-bold inline-flex items-center gap-1.5 transition-colors"
+                        className="min-h-[44px] px-3.5 py-2 rounded-lg bg-[#25D366] hover:bg-[#1ebe5d] text-slate-950 text-xs font-bold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
                       >
-                        <Share2 className="w-3.5 h-3.5" />
+                        <Share2 className="w-3.5 h-3.5 shrink-0" />
                         <span>Abrir WhatsApp com texto</span>
                       </a>
 
@@ -665,9 +666,9 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                         <a
                           href={generatedPreview.dataUrl}
                           download={generatedPreview.fileName}
-                          className="min-h-[36px] px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors"
+                          className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
                         >
-                          <Download className="w-3.5 h-3.5" />
+                          <Download className="w-3.5 h-3.5 shrink-0" />
                           <span>Baixar PNG</span>
                         </a>
                       )}
@@ -675,16 +676,16 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                       <button
                         type="button"
                         onClick={handleCopyWhatsappText}
-                        className="min-h-[36px] px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors"
+                        className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
                       >
                         {copiedText ? (
                           <>
-                            <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                             <span>Copiado</span>
                           </>
                         ) : (
                           <>
-                            <Copy className="w-3.5 h-3.5" />
+                            <Copy className="w-3.5 h-3.5 shrink-0" />
                             <span>Copiar texto</span>
                           </>
                         )}
@@ -700,7 +701,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                     setShareFeedback(null);
                   }}
                   aria-label="Fechar prévia de compartilhamento"
-                  className="min-h-[36px] min-w-[36px] rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 inline-flex items-center justify-center self-end sm:self-center"
+                  className="min-h-[44px] min-w-[44px] rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 inline-flex items-center justify-center self-end sm:self-center shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </button>

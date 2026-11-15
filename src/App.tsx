@@ -389,10 +389,10 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#F6F7F9] dark:bg-slate-950 text-slate-900 dark:text-slate-100 pb-20 lg:pb-10 transition-colors">
-      {/* Compact Sticky Header (Mobile 48px / Desktop 3-Zone Top Bar) */}
+    <div className="min-h-screen overflow-x-clip bg-[#F6F7F9] dark:bg-slate-950 text-slate-900 dark:text-slate-100 pb-24 lg:pb-12 transition-colors">
+      {/* Compact Sticky Header (Mobile 52px / Desktop 3-Zone Top Bar) */}
       <header className="sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800">
-        <div className="max-w-6xl mx-auto px-4 h-12 lg:h-16 flex items-center justify-between gap-8">
+        <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 h-13 lg:h-16 flex items-center justify-between gap-4 sm:gap-8">
           <a
             href="#top"
             onClick={(e) => {
@@ -431,7 +431,7 @@ export default function App() {
               type="button"
               onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}
               aria-label={theme === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro'}
-              className="min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              className="min-h-[44px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
             >
               {theme === 'dark' ? (
                 <>
@@ -450,7 +450,7 @@ export default function App() {
       </header>
 
       {/* Main Content Area */}
-      <main id="top" className="max-w-6xl mx-auto px-4 pt-4 sm:pt-6">
+      <main id="top" className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 pt-4 sm:pt-6">
         {/* TAB 1: ANALISADOR ESTATÍSTICO DE FUTEBOL (Menu separado dedicado) */}
         {activeTab === 'analyzer' && (
           <div>
@@ -489,11 +489,11 @@ export default function App() {
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-3">
-                  <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
-                    <div>
+                  <div className="grid grid-cols-1 min-[440px]:grid-cols-[1fr_auto_1fr] items-end gap-2">
+                    <div className="min-w-0">
                       <label
                         htmlFor="home-team"
-                        className="block text-xs font-semibold text-emerald-800 dark:text-emerald-400 mb-1"
+                        className="block text-xs font-semibold text-emerald-800 dark:text-emerald-400 mb-1 truncate"
                       >
                         Time A (Mandante)
                       </label>
@@ -511,15 +511,16 @@ export default function App() {
                       type="button"
                       onClick={handleSwapTeams}
                       aria-label="Inverter mandante e visitante"
-                      className="min-h-[44px] min-w-[44px] rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition-colors"
+                      className="min-h-[44px] w-full min-[440px]:w-auto min-[440px]:min-w-[44px] px-3 min-[440px]:px-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
                     >
-                      <ArrowLeftRight className="w-4 h-4" />
+                      <ArrowLeftRight className="w-4 h-4 shrink-0" />
+                      <span className="min-[440px]:hidden">Inverter mandante e visitante</span>
                     </button>
 
-                    <div>
+                    <div className="min-w-0">
                       <label
                         htmlFor="away-team"
-                        className="block text-xs font-semibold text-blue-800 dark:text-blue-400 mb-1"
+                        className="block text-xs font-semibold text-blue-800 dark:text-blue-400 mb-1 truncate"
                       >
                         Time B (Visitante)
                       </label>
@@ -555,7 +556,7 @@ export default function App() {
                           key={league}
                           type="button"
                           onClick={() => setCompetitionInput(league)}
-                          className={`min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 transition-colors border ${
+                          className={`min-h-[40px] px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 transition-colors border ${
                             competitionInput === league
                               ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900 dark:border-slate-100'
                               : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
@@ -592,14 +593,14 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-xs">
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <span className="text-slate-500 dark:text-slate-400">
                     Quer escolher um jogo da rodada?
                   </span>
                   <button
                     type="button"
                     onClick={() => setActiveTab('fixtures')}
-                    className="min-h-[36px] px-2.5 py-1 rounded-lg font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 whitespace-nowrap"
+                    className="min-h-[44px] px-2.5 py-1 rounded-lg font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 whitespace-nowrap"
                   >
                     Ver agenda de jogos
                   </button>
@@ -647,7 +648,7 @@ export default function App() {
                   <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
                     Informe dois clubes no card Analisador ou escolha uma partida na aba Jogos para buscar estatísticas reais na Internet e gerar a matriz de probabilidades por Poisson.
                   </p>
-                  <div className="pt-2 grid grid-cols-3 gap-2 max-w-sm mx-auto text-xs text-slate-600 dark:text-slate-300">
+                  <div className="pt-2 grid grid-cols-1 min-[380px]:grid-cols-3 gap-2 max-w-md mx-auto text-xs text-slate-600 dark:text-slate-300">
                     <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/60 dark:border-slate-700/60">
                       <div className="font-semibold text-slate-900 dark:text-slate-100">5 Módulos</div>
                       <div className="text-[11px] text-slate-500 dark:text-slate-400">Forma, H2H, Tabela</div>
@@ -670,7 +671,7 @@ export default function App() {
 
         {/* TAB 2: JOGOS (Menu separado para confrontos atuais e futuros) */}
         {activeTab === 'fixtures' && (
-          <div className="max-w-3xl mx-auto space-y-4">
+          <div className="max-w-5xl mx-auto space-y-4">
             <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5">
               <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                 <div>
@@ -719,13 +720,13 @@ export default function App() {
                   </button>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                   {fixtures.map((fx, idx) => (
                     <button
                       key={`${fx.homeTeam}-${fx.awayTeam}-${idx}`}
                       type="button"
                       onClick={() => handleSelectFixture(fx)}
-                      className="w-full min-h-[60px] py-3 px-2 -mx-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/70 active:bg-slate-100 dark:active:bg-slate-800 flex items-center justify-between gap-3 text-left transition-colors"
+                      className="w-full min-h-[64px] p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 hover:bg-slate-100/70 dark:hover:bg-slate-800/70 active:bg-slate-100 dark:active:bg-slate-800 flex items-center justify-between gap-3 text-left transition-colors"
                     >
                       <div className="min-w-0">
                         <div className="text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 truncate">
@@ -735,7 +736,7 @@ export default function App() {
                           {fx.competition} · {fx.dateLabel}
                         </div>
                       </div>
-                      <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
+                      <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 shrink-0 whitespace-nowrap">
                         Analisar
                       </span>
                     </button>
@@ -751,11 +752,11 @@ export default function App() {
           <div className="space-y-4">
             {analysis && model ? (
               <>
-                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-3">
+                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate min-w-0">
                     {analysis.data.homeTeam.name} × {analysis.data.awayTeam.name}
                   </div>
-                  <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-300">
+                  <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-300 shrink-0">
                     {model.homeWinPct}% · {model.drawPct}% · {model.awayWinPct}% (Placar{' '}
                     {model.mostLikelyScore.homeGoals}x{model.mostLikelyScore.awayGoals})
                   </div>
