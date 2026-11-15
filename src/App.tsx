@@ -136,7 +136,7 @@ export default function App() {
   const [isLoadingFixtures, setIsLoadingFixtures] = useState(false);
   const [fixturesError, setFixturesError] = useState<string | null>(null);
 
-  const [selectedMultipleLeague, setSelectedMultipleLeague] = useState<string>('bra.1');
+  const [selectedMultipleLeague, setSelectedMultipleLeague] = useState<string>('today');
   const [selectedMultipleCount, setSelectedMultipleCount] = useState<3 | 4 | 5>(3);
   const [onlyTodayMultiple, setOnlyTodayMultiple] = useState<boolean>(false);
   const [multipleTip, setMultipleTip] = useState<SerieAMultipleTip | null>(null);

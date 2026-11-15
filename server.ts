@@ -90,7 +90,7 @@ async function startServer() {
           ? req.body.league
           : typeof req.query?.league === 'string'
             ? req.query.league
-            : 'bra.1';
+            : 'today';
       const countRaw = req.body?.count ?? req.query?.count ?? 3;
       const onlyToday =
         Boolean(req.body?.onlyToday) || req.query?.onlyToday === '1';

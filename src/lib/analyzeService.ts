@@ -687,12 +687,12 @@ Nota sobre contextualImpactHome e contextualImpactAway: número conservador entr
 
 export async function getSerieAMultipleService(
   forceRefresh = false,
-  leagueInput = 'bra.1',
+  leagueInput = 'today',
   countInput = 3,
   onlyToday = false
 ): Promise<SerieAMultipleTip> {
-  const normalized = String(leagueInput || 'bra.1').trim().toLowerCase();
-  const leagueKey = MULTIPLE_COMPETITION_SET.has(normalized) ? normalized : 'bra.1';
+  const normalized = String(leagueInput || 'today').trim().toLowerCase();
+  const leagueKey = MULTIPLE_COMPETITION_SET.has(normalized) ? normalized : 'today';
   const parsedCount = Number(countInput);
   const legCount = parsedCount === 4 || parsedCount === 5 ? parsedCount : 3;
   const todayFlag = Boolean(onlyToday) || leagueKey === 'today';

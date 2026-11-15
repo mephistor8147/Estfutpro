@@ -1101,7 +1101,7 @@ function extractCalendarDates(scoreboardJson: any, todayIso: string, maxDates = 
 }
 
 export async function buildMultipleTipViaEspn(
-  leagueKey = 'bra.1',
+  leagueKey = 'today',
   desiredCount = 3,
   onlyToday = false
 ): Promise<SerieAMultipleTip | null> {

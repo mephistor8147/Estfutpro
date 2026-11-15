@@ -289,7 +289,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
           <div className="flex items-center gap-2">
             <Flame className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
             <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight text-balance">
-              Dica quente · {activeCompOption.label}
+              Dicas quentes
             </h2>
           </div>
 
@@ -308,7 +308,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
             </p>
           ) : (
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Combinada calculada pelo modelo Poisson com jogos futuros de competições pelo mundo.
+              {activeCompOption.label} · Combinada calculada pelo modelo Poisson com jogos de competições pelo mundo.
             </p>
           )}
         </div>
@@ -436,13 +436,21 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
         <div className="rounded-xl border border-amber-200 dark:border-amber-800/70 bg-amber-50/70 dark:bg-amber-950/30 p-3.5 flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs sm:text-sm text-amber-900 dark:text-amber-200">{error}</p>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {selectedLeague !== 'today' && (
+            {selectedLeague !== 'today' ? (
               <button
                 type="button"
                 onClick={() => onChangeLeague('today')}
                 className="min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold"
               >
                 Ver Jogos de Hoje (Mundial)
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onChangeLeague('world')}
+                className="min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold"
+              >
+                Ver Principais do Mundo
               </button>
             )}
             {onlyToday && selectedLeague !== 'today' && (

@@ -14,7 +14,7 @@ export default async function handler(req: VercelReq, res: VercelRes) {
   try {
     let forceRefresh = false;
     let league =
-      typeof req.query?.league === 'string' ? req.query.league : 'bra.1';
+      typeof req.query?.league === 'string' ? req.query.league : 'today';
     let count =
       typeof req.query?.count === 'string' ? Number(req.query.count) : 3;
     let onlyToday = req.query?.onlyToday === '1';
