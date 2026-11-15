@@ -4,7 +4,7 @@ import type {
   MatchAnalysisData,
   PoissonModelResult,
   ScorelineProbability,
-} from '../types/football.ts';
+} from '../types/football.js';
 
 function factorial(n: number): number {
   if (n <= 1) return 1;

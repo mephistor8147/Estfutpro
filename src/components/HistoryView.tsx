@@ -80,55 +80,55 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   return (
     <div className="space-y-4">
       {/* Calibration Summary */}
-      <section className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5">
+      <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5">
         <div className="flex items-center justify-between gap-2 mb-4">
           <div>
-            <h2 className="font-display text-xl font-bold text-slate-900">
+            <h2 className="font-display text-xl font-bold text-slate-900 dark:text-slate-100">
               Histórico e calibração do modelo
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Compare previsões calculadas com os placares reais após as partidas.
             </p>
           </div>
-          <BarChart3 className="w-5 h-5 text-emerald-700 shrink-0" />
+          <BarChart3 className="w-5 h-5 text-emerald-700 dark:text-emerald-400 shrink-0" />
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          <div className="rounded-xl bg-slate-50 border border-slate-200/70 p-3">
-            <div className="text-[11px] text-slate-500">Previsões salvas</div>
-            <div className="font-display text-2xl font-bold text-slate-900 tabular-nums mt-0.5">
+          <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700/70 p-3">
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">Previsões salvas</div>
+            <div className="font-display text-2xl font-bold text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">
               {history.length}
             </div>
           </div>
-          <div className="rounded-xl bg-slate-50 border border-slate-200/70 p-3">
-            <div className="text-[11px] text-slate-500">Jogos finalizados</div>
-            <div className="font-display text-2xl font-bold text-slate-900 tabular-nums mt-0.5">
+          <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700/70 p-3">
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">Jogos finalizados</div>
+            <div className="font-display text-2xl font-bold text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">
               {finished.length}
             </div>
           </div>
-          <div className="rounded-xl bg-emerald-50/70 border border-emerald-200/70 p-3">
-            <div className="text-[11px] text-emerald-900">Taxa de acerto 1X2</div>
-            <div className="font-display text-2xl font-bold text-emerald-700 tabular-nums mt-0.5">
+          <div className="rounded-xl bg-emerald-50/70 dark:bg-emerald-950/50 border border-emerald-200/70 dark:border-emerald-800/70 p-3">
+            <div className="text-[11px] text-emerald-900 dark:text-emerald-200">Taxa de acerto 1X2</div>
+            <div className="font-display text-2xl font-bold text-emerald-700 dark:text-emerald-400 tabular-nums mt-0.5">
               {hitRatePct !== null ? `${hitRatePct}%` : '—'}
             </div>
           </div>
-          <div className="rounded-xl bg-slate-50 border border-slate-200/70 p-3">
-            <div className="text-[11px] text-slate-500">Erro médio de gols</div>
-            <div className="font-display text-2xl font-bold text-slate-900 tabular-nums mt-0.5">
+          <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700/70 p-3">
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">Erro médio de gols</div>
+            <div className="font-display text-2xl font-bold text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">
               {avgGoalDiff !== null ? avgGoalDiff : '—'}
             </div>
           </div>
         </div>
 
         {leagues.length > 1 && (
-          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
             <button
               type="button"
               onClick={() => setFilterLeague('all')}
               className={`min-h-[40px] px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
                 filterLeague === 'all'
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:text-slate-900'
+                  ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               Todos ({history.length})
@@ -140,8 +140,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 onClick={() => setFilterLeague(league)}
                 className={`min-h-[40px] px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
                   filterLeague === league
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:text-slate-900'
+                    ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 {league}
@@ -153,12 +153,12 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
       {/* List of saved items */}
       {filtered.length === 0 ? (
-        <section className="bg-white rounded-2xl border border-slate-200/90 p-8 text-center">
-          <h3 className="text-base font-semibold text-slate-900">
+        <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-8 text-center">
+          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
             Nenhuma previsão salva ainda
           </h3>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-md mx-auto">
-            Analise um confronto na aba Comparar e toque em Salvar previsão para acompanhar sua taxa de acerto por campeonato.
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
+            Analise um confronto na aba Analisador e toque em Salvar previsão para acompanhar sua taxa de acerto por campeonato.
           </p>
         </section>
       ) : (
@@ -182,17 +182,19 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             return (
               <article
                 key={item.id}
-                className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-3"
+                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 space-y-3"
               >
-                <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
-                  <span className="font-medium text-slate-700 truncate">
+                <div className="flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+                  <span className="font-medium text-slate-700 dark:text-slate-300 truncate">
                     {item.competition} · {dateText}
                   </span>
                   <div className="flex items-center gap-1 shrink-0">
                     {hasResult && (
                       <span
                         className={`inline-flex items-center gap-1 font-semibold ${
-                          isHit ? 'text-emerald-700' : 'text-rose-700'
+                          isHit
+                            ? 'text-emerald-700 dark:text-emerald-400'
+                            : 'text-rose-700 dark:text-rose-400'
                         }`}
                       >
                         {isHit ? (
@@ -216,25 +218,25 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       size="sm"
                     />
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-slate-900 truncate">
+                      <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
                         {item.homeTeam.name} × {item.awayTeam.name}
                       </div>
-                      <div className="text-xs font-mono text-slate-500 tabular-nums mt-0.5">
+                      <div className="text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums mt-0.5">
                         {item.predictedHomePct}% · {item.predictedDrawPct}% · {item.predictedAwayPct}% · Placar modelo {item.mostLikelyScore}
                       </div>
                     </div>
                   </div>
 
                   {hasResult && item.actualScore && (
-                    <div className="shrink-0 px-3 py-1.5 rounded-xl bg-slate-900 text-white font-mono text-sm font-bold tabular-nums">
+                    <div className="shrink-0 px-3 py-1.5 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-mono text-sm font-bold tabular-nums">
                       {item.actualScore.homeGoals} x {item.actualScore.awayGoals}
                     </div>
                   )}
                 </div>
 
                 {isEditing ? (
-                  <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2">
-                    <label className="flex items-center gap-1.5 text-xs text-slate-700">
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-2">
+                    <label className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300">
                       <span>{item.homeTeam.shortCode}</span>
                       <input
                         type="number"
@@ -242,18 +244,18 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                         max={20}
                         value={homeInput}
                         onChange={(e) => setHomeInput(e.target.value)}
-                        className="w-16 min-h-[44px] px-2.5 rounded-xl border border-slate-300 text-center font-mono font-semibold text-slate-900"
+                        className="w-16 min-h-[44px] px-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-center font-mono font-semibold text-slate-900 dark:text-slate-100"
                       />
                     </label>
-                    <span className="text-xs font-mono text-slate-400">x</span>
-                    <label className="flex items-center gap-1.5 text-xs text-slate-700">
+                    <span className="text-xs font-mono text-slate-400 dark:text-slate-500">x</span>
+                    <label className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300">
                       <input
                         type="number"
                         min={0}
                         max={20}
                         value={awayInput}
                         onChange={(e) => setAwayInput(e.target.value)}
-                        className="w-16 min-h-[44px] px-2.5 rounded-xl border border-slate-300 text-center font-mono font-semibold text-slate-900"
+                        className="w-16 min-h-[44px] px-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-center font-mono font-semibold text-slate-900 dark:text-slate-100"
                       />
                       <span>{item.awayTeam.shortCode}</span>
                     </label>
@@ -261,26 +263,26 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       <button
                         type="button"
                         onClick={() => setEditingId(null)}
-                        className="min-h-[44px] px-3 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                        className="min-h-[44px] px-3 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                       >
                         Cancelar
                       </button>
                       <button
                         type="button"
                         onClick={() => submitScore(item.id)}
-                        className="min-h-[44px] px-4 rounded-xl text-xs font-semibold bg-emerald-700 text-white hover:bg-emerald-800"
+                        className="min-h-[44px] px-4 rounded-xl text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white"
                       >
                         Confirmar
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => startEdit(item)}
-                        className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 inline-flex items-center gap-1.5"
+                        className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 inline-flex items-center gap-1.5"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                         <span>{hasResult ? 'Editar placar' : 'Registrar placar real'}</span>
@@ -290,7 +292,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                         <button
                           type="button"
                           onClick={() => onLoadSnapshot(item)}
-                          className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80"
+                          className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200/80 dark:border-emerald-800"
                         >
                           Abrir análise
                         </button>
@@ -301,7 +303,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       type="button"
                       onClick={() => onDeleteItem(item.id)}
                       aria-label="Excluir previsão"
-                      className="min-h-[44px] min-w-[44px] rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors"
+                      className="min-h-[44px] min-w-[44px] rounded-xl text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center justify-center transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

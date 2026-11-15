@@ -15,8 +15,19 @@
       href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('campostats_theme_v1');
+          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (saved === 'dark' || (!saved && prefersDark)) {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
-  <body class="bg-[#F6F7F9] text-slate-900 antialiased selection:bg-emerald-600/15 selection:text-emerald-900">
+  <body class="bg-[#F6F7F9] dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased selection:bg-emerald-600/15 selection:text-emerald-900 dark:selection:bg-emerald-500/25 dark:selection:text-emerald-200">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

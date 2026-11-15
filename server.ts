@@ -6,6 +6,7 @@ import type { ChampionshipScope } from './src/types/football.js';
 import {
   analyzeMatchService,
   getFixturesService,
+  getSerieAMultipleService,
   resolveApiError,
 } from './src/lib/analyzeService.js';
 
@@ -70,6 +71,29 @@ async function startServer() {
       if (status !== 429) {
         console.error('Error analyzing match:', error?.message || error);
       }
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.all('/api/serie-a-multiple', async (req, res) => {
+    try {
+      const forceRefresh =
+        Boolean(req.body?.forceRefresh) || req.query?.refresh === '1';
+      const tip = await getSerieAMultipleService(forceRefresh);
+      res.json(tip);
+    } catch (error: any) {
+      if (error?.message === 'NO_UPCOMING_SERIE_A_MATCHES') {
+        res.status(404).json({
+          error:
+            'Nenhum jogo futuro da Série A disponível no calendário oficial neste momento.',
+        });
+        return;
+      }
+      const { status, message } = resolveApiError(
+        error,
+        'Não foi possível calcular a múltipla da Série A agora.'
+      );
+      console.error('Error building Serie A multiple:', error?.message || error);
       res.status(status).json({ error: message });
     }
   });

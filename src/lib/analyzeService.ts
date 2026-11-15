@@ -4,12 +4,18 @@ import type {
   ChampionshipScope,
   GroundingSource,
   MatchAnalysisData,
+  SerieAMultipleTip,
   SuggestedFixture,
 } from '../types/football.js';
-import { analyzeMatchViaEspn, fetchEspnLiveFixtures } from './espnProvider.js';
+import {
+  analyzeMatchViaEspn,
+  buildSerieAMultipleViaEspn,
+  fetchEspnLiveFixtures,
+} from './espnProvider.js';
 
 const FIXTURES_TTL_MS = 30 * 60 * 1000;
 const ANALYSIS_TTL_MS = 15 * 60 * 1000;
+const MULTIPLE_TTL_MS = 30 * 60 * 1000;
 
 const fixturesCache = new Map<
   ChampionshipScope,
@@ -20,6 +26,11 @@ const analysisCache = new Map<
   string,
   { payload: AnalysisResponsePayload; expiresAt: number }
 >();
+
+let serieAMultipleCache: {
+  tip: SerieAMultipleTip;
+  expiresAt: number;
+} | null = null;
 
 function getAiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -479,7 +490,7 @@ export async function getFixturesService(params: {
         ? 'Brasileirão Série A, Premier League, La Liga, Serie A Itália, Bundesliga e UEFA Champions League'
         : 'principais campeonatos nacionais e internacionais de futebol do mundo hoje';
 
-  const prompt = `Data de hoje: ${todayStr}. Pesquise na web até 6 partidas de futebol reais que vão acontecer nos próximos dias ou que aconteceram nesta semana envolvendo ${scopeDescription}.
+  const prompt = `Data e hora de referência: ${new Date().toISOString()}. Pesquise na web até 6 partidas de futebol reais que estão acontecendo ao vivo agora ou que vão acontecer hoje e nos próximos dias envolvendo ${scopeDescription}. NUNCA inclua jogos já encerrados.
 Responda EXCLUSIVAMENTE com um JSON válido no formato:
 {
   "fixtures": [
@@ -487,7 +498,7 @@ Responda EXCLUSIVAMENTE com um JSON válido no formato:
       "homeTeam": "Nome do mandante",
       "awayTeam": "Nome do visitante",
       "competition": "Nome do campeonato",
-      "dateLabel": "Data ou status curto (ex: Hoje · 21:30)"
+      "dateLabel": "Data ou status curto (ex: Ao vivo, Hoje · 21:30, Amanhã · 16:00)"
     }
   ]
 }
@@ -638,4 +649,24 @@ Nota sobre contextualImpactHome e contextualImpactAway: número conservador entr
   });
 
   return payload;
+}
+
+export async function getSerieAMultipleService(
+  forceRefresh = false
+): Promise<SerieAMultipleTip> {
+  if (!forceRefresh && serieAMultipleCache && serieAMultipleCache.expiresAt > Date.now()) {
+    return serieAMultipleCache.tip;
+  }
+
+  const tip = await buildSerieAMultipleViaEspn();
+  if (!tip || tip.legs.length === 0) {
+    throw new Error('NO_UPCOMING_SERIE_A_MATCHES');
+  }
+
+  serieAMultipleCache = {
+    tip,
+    expiresAt: Date.now() + MULTIPLE_TTL_MS,
+  };
+
+  return tip;
 }

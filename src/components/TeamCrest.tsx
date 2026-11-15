@@ -57,7 +57,7 @@ export const TeamCrest: React.FC<TeamCrestProps> = ({
         <path
           d="M22 2L40 8.5V23.5C40 35.2 31.8 44.6 22 48C12.2 44.6 4 35.2 4 23.5V8.5L22 2Z"
           fill="none"
-          stroke="rgba(15, 23, 42, 0.16)"
+          className="stroke-slate-900/15 dark:stroke-slate-200/30"
           strokeWidth="1.5"
         />
       </svg>

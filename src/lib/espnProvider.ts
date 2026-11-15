@@ -6,12 +6,15 @@ import type {
   MatchAnalysisData,
   MatchOutcome,
   RecentMatchItem,
+  SerieAMultipleLeg,
+  SerieAMultipleTip,
   SuggestedFixture,
   TeamComplementaryStats,
   TeamIdentity,
   TeamLastFiveStats,
   TeamStandingsStats,
 } from '../types/football.js';
+import { calculatePoissonModel } from './poisson.js';
 
 interface EspnSearchTeam {
   id: string;
@@ -412,7 +415,7 @@ export async function fetchEspnLiveFixtures(
         ? ['bra.1', 'eng.1', 'esp.1', 'ita.1', 'ger.1', 'uefa.champions']
         : ['bra.1', 'eng.1', 'esp.1', 'ita.1', 'ger.1', 'fra.1', 'uefa.champions', 'conmebol.libertadores'];
 
-  const results = await Promise.all(
+  const initialResults = await Promise.all(
     leagues.map(async (slug) => {
       const data = await fetchJson<any>(
         `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard`,
@@ -422,24 +425,84 @@ export async function fetchEspnLiveFixtures(
     })
   );
 
-  const fixtures: SuggestedFixture[] = [];
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const futureDateFetches: Promise<{ slug: string; data: any }>[] = [];
+
+  for (const { slug, data } of initialResults) {
+    const activeCount = (data?.events || []).filter((ev: any) => {
+      const st = ev?.competitions?.[0]?.status?.type;
+      return !st?.completed && st?.state !== 'post';
+    }).length;
+
+    if (activeCount < 3) {
+      const calendar: string[] = data?.leagues?.[0]?.calendar || [];
+      const nextDates = calendar
+        .filter((d) => typeof d === 'string' && d.slice(0, 10) >= todayIso)
+        .slice(0, 2);
+
+      for (const dateStr of nextDates) {
+        const ymd = dateStr.slice(0, 10).replace(/-/g, '');
+        futureDateFetches.push(
+          fetchJson<any>(
+            `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${ymd}`,
+            6000
+          ).then((futureData) => ({ slug, data: futureData }))
+        );
+      }
+    }
+  }
+
+  const extraResults = futureDateFetches.length > 0 ? await Promise.all(futureDateFetches) : [];
+  const allBatches = [...initialResults, ...extraResults];
+
+  const seenEventIds = new Set<string>();
+  const collected: (SuggestedFixture & { isLive: boolean; timestamp: number })[] = [];
   const now = Date.now();
 
-  for (const { slug, data } of results) {
+  for (const { slug, data } of allBatches) {
+    if (!data) continue;
     const compTitle =
       LEAGUE_LABELS[slug] || data?.leagues?.[0]?.name || slug.toUpperCase();
     const events = data?.events || [];
+
     for (const ev of events) {
+      const eventId = String(ev?.id || '');
+      if (!eventId || seenEventIds.has(eventId)) continue;
+
       const comp = ev?.competitions?.[0];
+      const statusType = comp?.status?.type;
+      const state = statusType?.state; // 'pre' | 'in' | 'post'
+      const completed = Boolean(statusType?.completed);
+
+      // Strictly keep ONLY current (in progress) or future (pre) matches
+      if (completed || state === 'post') continue;
+
+      const evDate = ev.date ? new Date(ev.date) : null;
+      const timestamp = evDate && !Number.isNaN(evDate.getTime()) ? evDate.getTime() : now;
+      const isLive = state === 'in';
+
+      // Exclude stale unstarted games more than 3 hours in the past
+      if (!isLive && timestamp < now - 3 * 60 * 60 * 1000) continue;
+
       const competitors = comp?.competitors || [];
       const home = competitors.find((c: any) => c.homeAway === 'home');
       const away = competitors.find((c: any) => c.homeAway === 'away');
       if (!home || !away) continue;
 
-      const evDate = ev.date ? new Date(ev.date) : null;
-      let dateLabel = comp?.status?.type?.shortDetail || 'Agendado';
-      if (evDate && !Number.isNaN(evDate.getTime())) {
-        const diffDays = Math.round((evDate.getTime() - now) / (1000 * 60 * 60 * 24));
+      seenEventIds.add(eventId);
+
+      let dateLabel = statusType?.shortDetail || 'Agendado';
+      if (isLive) {
+        const detail = statusType?.shortDetail || 'Em andamento';
+        dateLabel = `Ao vivo · ${detail}`;
+      } else if (evDate && !Number.isNaN(evDate.getTime())) {
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const startOfEvDay = new Date(evDate);
+        startOfEvDay.setHours(0, 0, 0, 0);
+        const diffDays = Math.round(
+          (startOfEvDay.getTime() - startOfToday.getTime()) / (1000 * 60 * 60 * 24)
+        );
         const timeStr = new Intl.DateTimeFormat('pt-BR', {
           hour: '2-digit',
           minute: '2-digit',
@@ -456,16 +519,28 @@ export async function fetchEspnLiveFixtures(
         }
       }
 
-      fixtures.push({
+      collected.push({
         homeTeam: home.team?.displayName || home.team?.shortDisplayName || 'Mandante',
         awayTeam: away.team?.displayName || away.team?.shortDisplayName || 'Visitante',
         competition: compTitle,
         dateLabel,
+        isLive,
+        timestamp,
       });
     }
   }
 
-  return fixtures.slice(0, 8);
+  collected.sort((a, b) => {
+    if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;
+    return a.timestamp - b.timestamp;
+  });
+
+  return collected.slice(0, 10).map(({ homeTeam, awayTeam, competition, dateLabel }) => ({
+    homeTeam,
+    awayTeam,
+    competition,
+    dateLabel,
+  }));
 }
 
 export async function analyzeMatchViaEspn(
@@ -780,5 +855,501 @@ export async function analyzeMatchViaEspn(
     updatedAt: new Date().toISOString(),
     data: analysisData,
     sources,
+  };
+}
+
+function formatUpcomingKickoffLabel(evDate: Date | null, fallbackDetail?: string): string {
+  if (!evDate || Number.isNaN(evDate.getTime())) {
+    return fallbackDetail || 'Agendado';
+  }
+  const timeZone = 'America/Sao_Paulo';
+  const dayKeyFmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const todayKey = dayKeyFmt.format(new Date());
+  const evKey = dayKeyFmt.format(evDate);
+  const tomorrowDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const tomorrowKey = dayKeyFmt.format(tomorrowDate);
+
+  const timeStr = new Intl.DateTimeFormat('pt-BR', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(evDate);
+
+  if (evKey === todayKey) return `Hoje · ${timeStr}`;
+  if (evKey === tomorrowKey) return `Amanhã · ${timeStr}`;
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone,
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(evDate);
+}
+
+export async function buildSerieAMultipleViaEspn(): Promise<SerieAMultipleTip | null> {
+  const leagueSlug = 'bra.1';
+  const compLabel = 'Brasileirão Série A';
+
+  const [scoreboardJson, standingsJson] = await Promise.all([
+    fetchJson<any>(
+      `https://site.api.espn.com/apis/site/v2/sports/soccer/${leagueSlug}/scoreboard`,
+      7000
+    ),
+    fetchJson<any>(
+      `https://site.api.espn.com/apis/v2/sports/soccer/${leagueSlug}/standings`,
+      7000
+    ),
+  ]);
+
+  if (!scoreboardJson) return null;
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const calendar: string[] = scoreboardJson?.leagues?.[0]?.calendar || [];
+  const nextDates = calendar
+    .filter((d) => typeof d === 'string' && d.slice(0, 10) >= todayIso)
+    .slice(0, 3);
+
+  const now = Date.now();
+  const extractUpcomingFromBatch = (batch: any) => {
+    const out: {
+      eventId: string;
+      timestamp: number;
+      dateLabel: string;
+      homeId: string;
+      homeName: string;
+      homeAbbr: string;
+      homeColor: string;
+      awayId: string;
+      awayName: string;
+      awayAbbr: string;
+      awayColor: string;
+    }[] = [];
+
+    for (const ev of batch?.events || []) {
+      const eventId = String(ev?.id || '');
+      const comp = ev?.competitions?.[0];
+      const statusType = comp?.status?.type;
+      const state = statusType?.state;
+      const completed = Boolean(statusType?.completed);
+
+      // Strictly upcoming matches for the multiple slip
+      if (!eventId || completed || state !== 'pre') continue;
+
+      const evDate = ev?.date ? new Date(ev.date) : null;
+      const timestamp = evDate && !Number.isNaN(evDate.getTime()) ? evDate.getTime() : 0;
+      if (!timestamp || timestamp < now - 30 * 60 * 1000) continue;
+
+      const competitors = comp?.competitors || [];
+      const home = competitors.find((c: any) => c.homeAway === 'home');
+      const away = competitors.find((c: any) => c.homeAway === 'away');
+      if (!home?.team?.id || !away?.team?.id) continue;
+
+      out.push({
+        eventId,
+        timestamp,
+        dateLabel: formatUpcomingKickoffLabel(evDate, statusType?.shortDetail),
+        homeId: String(home.team.id),
+        homeName: home.team.displayName || home.team.shortDisplayName || 'Mandante',
+        homeAbbr: (home.team.abbreviation || home.team.displayName || 'MAN').slice(0, 3).toUpperCase(),
+        homeColor: sanitizeHex(home.team.color, '#0F766E'),
+        awayId: String(away.team.id),
+        awayName: away.team.displayName || away.team.shortDisplayName || 'Visitante',
+        awayAbbr: (away.team.abbreviation || away.team.displayName || 'VIS').slice(0, 3).toUpperCase(),
+        awayColor: sanitizeHex(away.team.color, '#1D4ED8'),
+      });
+    }
+    return out;
+  };
+
+  const upcomingMap = new Map<string, ReturnType<typeof extractUpcomingFromBatch>[number]>();
+  for (const item of extractUpcomingFromBatch(scoreboardJson)) {
+    upcomingMap.set(item.eventId, item);
+  }
+
+  if (upcomingMap.size < 5 && nextDates.length > 0) {
+    const extraBatches = await Promise.all(
+      nextDates.map((dateStr) =>
+        fetchJson<any>(
+          `https://site.api.espn.com/apis/site/v2/sports/soccer/${leagueSlug}/scoreboard?dates=${dateStr
+            .slice(0, 10)
+            .replace(/-/g, '')}`,
+          6000
+        )
+      )
+    );
+    for (const batch of extraBatches) {
+      for (const item of extractUpcomingFromBatch(batch)) {
+        if (!upcomingMap.has(item.eventId)) {
+          upcomingMap.set(item.eventId, item);
+        }
+      }
+    }
+  }
+
+  const candidateMatches = Array.from(upcomingMap.values())
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(0, 6);
+
+  if (candidateMatches.length === 0) {
+    return null;
+  }
+
+  const standingEntries: any[] = [];
+  for (const child of standingsJson?.children || []) {
+    if (Array.isArray(child?.standings?.entries)) {
+      standingEntries.push(...child.standings.entries);
+    }
+  }
+
+  const uniqueTeamIds = Array.from(
+    new Set(candidateMatches.flatMap((m) => [m.homeId, m.awayId]))
+  );
+
+  const scheduleEntries = await Promise.all(
+    uniqueTeamIds.map(async (teamId) => {
+      const json = await fetchJson<any>(
+        `https://site.api.espn.com/apis/site/v2/sports/soccer/${leagueSlug}/teams/${teamId}/schedule`,
+        6500
+      );
+      return [teamId, json] as const;
+    })
+  );
+  const scheduleMap = new Map<string, any>(scheduleEntries);
+
+  const buildStanding = (teamId: string, completedList: ParsedScheduleEvent[]): TeamStandingsStats => {
+    const entry = standingEntries.find((e) => String(e?.team?.id) === String(teamId));
+    const fallback = buildStandingsFromSchedule(completedList);
+    if (!entry || !Array.isArray(entry.stats)) return fallback;
+
+    const played = getStatValue(entry.stats, 'gamesPlayed') ?? fallback.played;
+    const wins = getStatValue(entry.stats, 'wins') ?? fallback.wins;
+    const draws = getStatValue(entry.stats, 'ties') ?? fallback.draws;
+    const losses = getStatValue(entry.stats, 'losses') ?? fallback.losses;
+    const points = getStatValue(entry.stats, 'points') ?? fallback.points;
+    const goalsFor = getStatValue(entry.stats, 'pointsFor') ?? fallback.goalsFor;
+    const goalsAgainst = getStatValue(entry.stats, 'pointsAgainst') ?? fallback.goalsAgainst;
+    const goalDifference =
+      getStatValue(entry.stats, 'pointDifferential') ??
+      (goalsFor !== null && goalsAgainst !== null ? goalsFor - goalsAgainst : null);
+    const position = getStatValue(entry.stats, 'rank');
+    const winPercentage =
+      points !== null && played && played > 0
+        ? Math.round((points / (played * 3)) * 100)
+        : fallback.winPercentage;
+
+    return {
+      position,
+      points,
+      played,
+      wins,
+      draws,
+      losses,
+      goalsFor,
+      goalsAgainst,
+      goalDifference,
+      winPercentage,
+      homeRecord: fallback.homeRecord,
+      awayRecord: fallback.awayRecord,
+    };
+  };
+
+  interface ScoredCandidateLeg {
+    timestamp: number;
+    score: number;
+    marketType: '1X2' | 'DC' | 'O15' | 'O25' | 'BTTS';
+    leg: SerieAMultipleLeg;
+  }
+
+  const scoredCandidates: ScoredCandidateLeg[] = [];
+  const seasonLabel = String(
+    standingsJson?.children?.[0]?.standings?.seasonDisplayName ||
+      new Date().getFullYear()
+  );
+
+  for (const match of candidateMatches) {
+    const homeRaw = scheduleMap.get(match.homeId);
+    const awayRaw = scheduleMap.get(match.awayId);
+
+    const homeEvents = parseScheduleEvents(homeRaw, match.homeId, compLabel)
+      .filter((e) => e.completed)
+      .sort((a, b) => b.timestamp - a.timestamp);
+    const awayEvents = parseScheduleEvents(awayRaw, match.awayId, compLabel)
+      .filter((e) => e.completed)
+      .sort((a, b) => b.timestamp - a.timestamp);
+
+    const homeStandings = buildStanding(match.homeId, homeEvents);
+    const awayStandings = buildStanding(match.awayId, awayEvents);
+
+    const h2hEvents = homeEvents.filter((e) => String(e.opponentId) === match.awayId).slice(0, 5);
+    const h2hHomeWins = h2hEvents.filter((e) => e.outcome === 'V').length;
+    const h2hAwayWins = h2hEvents.filter((e) => e.outcome === 'D').length;
+    const h2hDraws = h2hEvents.filter((e) => e.outcome === 'E').length;
+    const h2hAvgGoals =
+      h2hEvents.length > 0
+        ? Number(
+            (
+              h2hEvents.reduce((acc, e) => acc + e.teamScore + e.opponentScore, 0) /
+              h2hEvents.length
+            ).toFixed(2)
+          )
+        : null;
+
+    const latestHomeTs = homeEvents[0]?.timestamp;
+    const latestAwayTs = awayEvents[0]?.timestamp;
+    const homeRest = latestHomeTs
+      ? Math.max(0, Math.round((match.timestamp - latestHomeTs) / (1000 * 60 * 60 * 24)))
+      : null;
+    const awayRest = latestAwayTs
+      ? Math.max(0, Math.round((match.timestamp - latestAwayTs) / (1000 * 60 * 60 * 24)))
+      : null;
+
+    let contextualImpactHome = 0;
+    let contextualImpactAway = 0;
+    if (homeRest !== null && awayRest !== null) {
+      if (homeRest - awayRest >= 3) contextualImpactHome = 0.08;
+      else if (awayRest - homeRest >= 3) contextualImpactAway = 0.08;
+    }
+
+    const analysisData: MatchAnalysisData = {
+      competition: compLabel,
+      season: seasonLabel,
+      matchDateInfo: match.dateLabel,
+      homeTeam: {
+        name: match.homeName,
+        shortCode: match.homeAbbr,
+        primaryColor: match.homeColor,
+        secondaryColor: '#FFFFFF',
+      },
+      awayTeam: {
+        name: match.awayName,
+        shortCode: match.awayAbbr,
+        primaryColor: match.awayColor,
+        secondaryColor: '#FFFFFF',
+      },
+      module1LastFive: {
+        home: buildLastFiveStats(homeEvents, compLabel),
+        away: buildLastFiveStats(awayEvents, compLabel),
+      },
+      module2HeadToHead: {
+        totalMatchesAnalyzed: h2hEvents.length,
+        homeTeamWins: h2hHomeWins,
+        awayTeamWins: h2hAwayWins,
+        draws: h2hDraws,
+        avgGoalsPerMatch: h2hAvgGoals,
+        recentMatches: [],
+      },
+      module3Standings: {
+        home: homeStandings,
+        away: awayStandings,
+      },
+      module4Complementary: {
+        home: {
+          avgCorners: null,
+          avgCards: null,
+          avgShots: null,
+          avgShotsOnTarget: null,
+          avgPossessionPct: null,
+          bttsPct: null,
+          over15Pct: null,
+          over25Pct: null,
+        },
+        away: {
+          avgCorners: null,
+          avgCards: null,
+          avgShots: null,
+          avgShotsOnTarget: null,
+          avgPossessionPct: null,
+          bttsPct: null,
+          over15Pct: null,
+          over25Pct: null,
+        },
+      },
+      module5Context: {
+        homeAdvantageNote: null,
+        matchImportance: null,
+        homeTeamContext: {
+          absencesAndSuspensions: [],
+          restDays: homeRest,
+          recentCoachChange: null,
+          formNote: null,
+        },
+        awayTeamContext: {
+          absencesAndSuspensions: [],
+          restDays: awayRest,
+          recentCoachChange: null,
+          formNote: null,
+        },
+        contextualImpactHome,
+        contextualImpactAway,
+      },
+      dataWarnings: [],
+    };
+
+    const poisson = calculatePoissonModel(analysisData);
+    const homeLast5 = analysisData.module1LastFive.home;
+    const awayLast5 = analysisData.module1LastFive.away;
+    const homePosStr = homeStandings.position ? `${homeStandings.position}º` : 'Mandante';
+    const awayPosStr = awayStandings.position ? `${awayStandings.position}º` : 'Visitante';
+
+    interface MarketOption {
+      marketType: ScoredCandidateLeg['marketType'];
+      marketLabel: string;
+      probabilityPct: number;
+      score: number;
+      rationale: string;
+    }
+
+    const options: MarketOption[] = [];
+
+    if (poisson.homeWinPct >= 52) {
+      options.push({
+        marketType: '1X2',
+        marketLabel: `Vitória ${match.homeName}`,
+        probabilityPct: poisson.homeWinPct,
+        score: poisson.homeWinPct + 18,
+        rationale: `${match.homeName} (${homePosStr}) soma ${homeLast5.wins}V nos últimos 5 jogos e xG de ${poisson.expectedGoalsHome.toFixed(2)} em casa contra ${match.awayName} (${awayPosStr}).`,
+      });
+    }
+
+    if (poisson.awayWinPct >= 52) {
+      options.push({
+        marketType: '1X2',
+        marketLabel: `Vitória ${match.awayName}`,
+        probabilityPct: poisson.awayWinPct,
+        score: poisson.awayWinPct + 18,
+        rationale: `${match.awayName} (${awayPosStr}) projeta xG de ${poisson.expectedGoalsAway.toFixed(2)} com ${awayLast5.wins}V nas últimas 5 partidas diante de ${match.homeName} (${homePosStr}).`,
+      });
+    }
+
+    const homeDoubleChance = Math.min(96, poisson.homeWinPct + poisson.drawPct);
+    if (homeDoubleChance >= 72) {
+      options.push({
+        marketType: 'DC',
+        marketLabel: `Dupla chance: ${match.homeName} ou Empate`,
+        probabilityPct: homeDoubleChance,
+        score: homeDoubleChance - 5,
+        rationale: `${match.homeName} (${homePosStr}) mantém ${homeDoubleChance}% de probabilidade combinada de pontuar como mandante (xG ${poisson.expectedGoalsHome.toFixed(2)} × ${poisson.expectedGoalsAway.toFixed(2)}).`,
+      });
+    }
+
+    const awayDoubleChance = Math.min(96, poisson.awayWinPct + poisson.drawPct);
+    if (awayDoubleChance >= 72) {
+      options.push({
+        marketType: 'DC',
+        marketLabel: `Dupla chance: ${match.awayName} ou Empate`,
+        probabilityPct: awayDoubleChance,
+        score: awayDoubleChance - 5,
+        rationale: `${match.awayName} (${awayPosStr}) acumula ${awayLast5.wins}V-${awayLast5.draws}E nos últimos 5 jogos e ${awayDoubleChance}% de chance de sair invicto.`,
+      });
+    }
+
+    if (poisson.over25Pct >= 58) {
+      options.push({
+        marketType: 'O25',
+        marketLabel: 'Mais de 2,5 gols',
+        probabilityPct: poisson.over25Pct,
+        score: poisson.over25Pct + 10,
+        rationale: `Expectativa ofensiva combinada de ${(
+          poisson.expectedGoalsHome + poisson.expectedGoalsAway
+        ).toFixed(2)} gols (médias recentes de ${homeLast5.avgGoalsScored} e ${awayLast5.avgGoalsScored} gols marcados).`,
+      });
+    }
+
+    if (poisson.bttsPct >= 58) {
+      options.push({
+        marketType: 'BTTS',
+        marketLabel: 'Ambas marcam: Sim',
+        probabilityPct: poisson.bttsPct,
+        score: poisson.bttsPct + 9,
+        rationale: `Ataques regulares: ${match.homeName} marca ${homeLast5.avgGoalsScored}/jogo e ${match.awayName} marca ${awayLast5.avgGoalsScored}/jogo nas últimas 5 rodadas.`,
+      });
+    }
+
+    if (poisson.over15Pct >= 70) {
+      options.push({
+        marketType: 'O15',
+        marketLabel: 'Mais de 1,5 gols',
+        probabilityPct: poisson.over15Pct,
+        score: poisson.over15Pct - 6,
+        rationale: `Tendência sólida de gols com soma de xG em ${(
+          poisson.expectedGoalsHome + poisson.expectedGoalsAway
+        ).toFixed(2)} e ${poisson.over15Pct}% na matriz de Poisson.`,
+      });
+    }
+
+    if (options.length === 0) {
+      // Fallback to highest-probability Double Chance or Over 1.5
+      if (homeDoubleChance >= awayDoubleChance && homeDoubleChance >= poisson.over15Pct) {
+        options.push({
+          marketType: 'DC',
+          marketLabel: `Dupla chance: ${match.homeName} ou Empate`,
+          probabilityPct: homeDoubleChance,
+          score: homeDoubleChance - 8,
+          rationale: `Confronto equilibrado entre ${homePosStr} e ${awayPosStr}, com proteção do mando para ${match.homeName}.`,
+        });
+      } else {
+        options.push({
+          marketType: 'O15',
+          marketLabel: 'Mais de 1,5 gols',
+          probabilityPct: poisson.over15Pct,
+          score: poisson.over15Pct - 8,
+          rationale: `Soma projetada de ${(
+            poisson.expectedGoalsHome + poisson.expectedGoalsAway
+          ).toFixed(2)} xG entre ${match.homeName} e ${match.awayName}.`,
+        });
+      }
+    }
+
+    options.sort((a, b) => b.score - a.score);
+    const bestOpt = options[0];
+
+    scoredCandidates.push({
+      timestamp: match.timestamp,
+      score: bestOpt.score,
+      marketType: bestOpt.marketType,
+      leg: {
+        homeTeam: match.homeName,
+        awayTeam: match.awayName,
+        homeShortCode: match.homeAbbr,
+        awayShortCode: match.awayAbbr,
+        dateLabel: match.dateLabel,
+        marketLabel: bestOpt.marketLabel,
+        probabilityPct: bestOpt.probabilityPct,
+        expectedGoalsHome: poisson.expectedGoalsHome,
+        expectedGoalsAway: poisson.expectedGoalsAway,
+        rationale: bestOpt.rationale,
+      },
+    });
+  }
+
+  if (scoredCandidates.length === 0) {
+    return null;
+  }
+
+  scoredCandidates.sort((a, b) => b.score - a.score);
+  const selected = scoredCandidates
+    .slice(0, 3)
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .map((item) => item.leg);
+
+  const combinedProduct = selected.reduce(
+    (acc, leg) => acc * (leg.probabilityPct / 100),
+    1
+  );
+  const combinedProbabilityPct = Math.max(1, Math.round(combinedProduct * 100));
+  const fairOddEstimate = Number((1 / Math.max(0.01, combinedProduct)).toFixed(2));
+
+  return {
+    competition: compLabel,
+    updatedAt: new Date().toISOString(),
+    legs: selected,
+    combinedProbabilityPct,
+    fairOddEstimate,
+    sourceUrl: 'https://www.espn.com/soccer/scoreboard/_/league/bra.1',
   };
 }

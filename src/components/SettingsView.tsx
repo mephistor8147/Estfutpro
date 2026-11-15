@@ -1,4 +1,5 @@
 import React from 'react';
+import { Moon, Sun } from 'lucide-react';
 import type {
   ActiveModulesConfig,
   AppSettings,
@@ -8,11 +9,15 @@ import type {
 
 interface SettingsViewProps {
   settings: AppSettings;
+  theme: 'light' | 'dark';
+  onChangeTheme: (next: 'light' | 'dark') => void;
   onUpdateSettings: (next: AppSettings) => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
+  theme,
+  onChangeTheme,
   onUpdateSettings,
 }) => {
   const toggleModule = (key: keyof ActiveModulesConfig) => {
@@ -78,17 +83,48 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* 1. Campeonatos */}
-      <section className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5">
-        <h2 className="font-display text-xl font-bold text-slate-900">
-          Configuração do analisador
-        </h2>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Personalize os campeonatos sugeridos, módulos ativos e pesos do modelo de Poisson.
-        </p>
+      {/* Aparência: Tema Claro / Escuro */}
+      <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-xl font-bold text-slate-900 dark:text-slate-100">
+              Aparência e configurações
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Alterne entre tema claro e escuro ou ajuste campeonatos e módulos.
+            </p>
+          </div>
 
-        <div className="mt-5">
-          <h3 className="text-sm font-semibold text-slate-900 mb-2.5">
+          <div className="inline-flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700">
+            <button
+              type="button"
+              onClick={() => onChangeTheme('light')}
+              className={`min-h-[40px] px-3.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors ${
+                theme === 'light'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Sun className="w-3.5 h-3.5" />
+              <span>Claro</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeTheme('dark')}
+              className={`min-h-[40px] px-3.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors ${
+                theme === 'dark'
+                  ? 'bg-slate-950 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Moon className="w-3.5 h-3.5" />
+              <span>Escuro</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 pt-5 border-t border-slate-100 dark:border-slate-800">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2.5">
             1. Quais campeonatos deseja acompanhar?
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -107,12 +143,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   onClick={() => setScope(opt.id)}
                   className={`min-h-[56px] p-3.5 rounded-xl border text-left transition-colors ${
                     active
-                      ? 'bg-emerald-50/80 border-emerald-600 text-slate-900'
-                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      ? 'bg-emerald-50/80 dark:bg-emerald-950/50 border-emerald-600 dark:border-emerald-500 text-slate-900 dark:text-slate-100'
+                      : 'bg-white dark:bg-slate-950/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
                   }`}
                 >
                   <div className="text-xs font-bold">{opt.title}</div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">{opt.sub}</div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{opt.sub}</div>
                 </button>
               );
             })}
@@ -121,15 +157,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </section>
 
       {/* 2. Módulos */}
-      <section className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5">
-        <h3 className="text-sm font-semibold text-slate-900 mb-1">
+      <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1">
           2. Quais análises deseja incluir?
         </h3>
-        <p className="text-xs text-slate-500 mb-3">
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
           Desativar módulos recalcula o modelo matemático instantaneamente.
         </p>
 
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-slate-100 dark:divide-slate-800">
           {moduleOptions.map((item) => {
             const enabled = settings.activeModules[item.key];
             return (
@@ -138,8 +174,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 className="py-3 flex items-center justify-between gap-4"
               >
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-slate-900">{item.label}</div>
-                  <div className="text-xs text-slate-500">{item.desc}</div>
+                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                    {item.label}
+                  </div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">{item.desc}</div>
                 </div>
                 <button
                   type="button"
@@ -147,7 +185,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   aria-checked={enabled}
                   onClick={() => toggleModule(item.key)}
                   className={`relative shrink-0 w-12 h-7 rounded-full transition-colors p-1 flex items-center ${
-                    enabled ? 'bg-emerald-700 justify-end' : 'bg-slate-300 justify-start'
+                    enabled
+                      ? 'bg-emerald-700 dark:bg-emerald-600 justify-end'
+                      : 'bg-slate-300 dark:bg-slate-700 justify-start'
                   }`}
                 >
                   <span className="w-5 h-5 rounded-full bg-white shadow-xs" />
@@ -160,20 +200,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* 3. Pesos matemáticos e Atualização */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <section className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 space-y-4">
+        <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 space-y-4">
           <div>
-            <h3 className="text-sm font-semibold text-slate-900">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               3. Calibração do modelo matemático
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Controle o equilíbrio entre forma recente e desempenho da temporada.
             </p>
           </div>
 
           <div>
             <div className="flex justify-between text-xs mb-1.5">
-              <span className="font-medium text-slate-700">Peso das últimas 5 partidas</span>
-              <span className="font-mono font-semibold text-slate-900 tabular-nums">
+              <span className="font-medium text-slate-700 dark:text-slate-300">
+                Peso das últimas 5 partidas
+              </span>
+              <span className="font-mono font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
                 {Math.round(settings.recentFormWeight * 100)}%
               </span>
             </div>
@@ -189,14 +231,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   recentFormWeight: parseFloat(e.target.value),
                 })
               }
-              className="w-full accent-emerald-700 h-2 bg-slate-200 rounded-lg cursor-pointer"
+              className="w-full accent-emerald-700 dark:accent-emerald-500 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
             />
           </div>
 
           <div>
             <div className="flex justify-between text-xs mb-1.5">
-              <span className="font-medium text-slate-700">Fator mando de campo</span>
-              <span className="font-mono font-semibold text-slate-900 tabular-nums">
+              <span className="font-medium text-slate-700 dark:text-slate-300">
+                Fator mando de campo
+              </span>
+              <span className="font-mono font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
                 {settings.homeAdvantageMultiplier.toFixed(2)}x
               </span>
             </div>
@@ -212,13 +256,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   homeAdvantageMultiplier: parseFloat(e.target.value),
                 })
               }
-              className="w-full accent-emerald-700 h-2 bg-slate-200 rounded-lg cursor-pointer"
+              className="w-full accent-emerald-700 dark:accent-emerald-500 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
             />
           </div>
         </section>
 
-        <section className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5">
-          <h3 className="text-sm font-semibold text-slate-900 mb-2.5">
+        <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2.5">
             4. Como deseja atualizar os dados?
           </h3>
           <div className="space-y-2.5">
@@ -227,12 +271,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 {
                   id: 'auto',
                   title: 'Automaticamente pela Internet',
-                  sub: 'Busca jogos atuais ao abrir e inicia a análise imediatamente ao tocar em um confronto.',
+                  sub: 'Inicia a análise automaticamente ao selecionar um confronto na aba Jogos.',
                 },
                 {
                   id: 'manual',
                   title: 'Somente quando solicitar uma análise',
-                  sub: 'Preenche os campos do confronto selecionado e aguarda seu toque em Calcular Probabilidades.',
+                  sub: 'Preenche os campos do Analisador e aguarda seu toque em Calcular probabilidades.',
                 },
               ] as const
             ).map((opt) => {
@@ -244,12 +288,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   onClick={() => setUpdateMode(opt.id)}
                   className={`w-full min-h-[56px] p-3.5 rounded-xl border text-left transition-colors ${
                     active
-                      ? 'bg-emerald-50/80 border-emerald-600 text-slate-900'
-                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      ? 'bg-emerald-50/80 dark:bg-emerald-950/50 border-emerald-600 dark:border-emerald-500 text-slate-900 dark:text-slate-100'
+                      : 'bg-white dark:bg-slate-950/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
                   }`}
                 >
                   <div className="text-xs font-bold">{opt.title}</div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">{opt.sub}</div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{opt.sub}</div>
                 </button>
               );
             })}

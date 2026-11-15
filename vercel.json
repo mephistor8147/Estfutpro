@@ -9,6 +9,9 @@
     },
     "api/fixtures.ts": {
       "maxDuration": 20
+    },
+    "api/serie-a-multiple.ts": {
+      "maxDuration": 25
     }
   },
   "rewrites": [

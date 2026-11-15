@@ -213,3 +213,25 @@ export interface SuggestedFixture {
   competition: string;
   dateLabel: string;
 }
+
+export interface SerieAMultipleLeg {
+  homeTeam: string;
+  awayTeam: string;
+  homeShortCode: string;
+  awayShortCode: string;
+  dateLabel: string;
+  marketLabel: string;
+  probabilityPct: number;
+  expectedGoalsHome: number;
+  expectedGoalsAway: number;
+  rationale: string;
+}
+
+export interface SerieAMultipleTip {
+  competition: string;
+  updatedAt: string;
+  legs: SerieAMultipleLeg[];
+  combinedProbabilityPct: number;
+  fairOddEstimate: number;
+  sourceUrl: string;
+}
