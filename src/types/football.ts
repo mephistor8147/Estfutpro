@@ -219,6 +219,7 @@ export interface SerieAMultipleLeg {
   awayTeam: string;
   homeShortCode: string;
   awayShortCode: string;
+  competition?: string;
   dateLabel: string;
   marketLabel: string;
   probabilityPct: number;
@@ -228,6 +229,7 @@ export interface SerieAMultipleLeg {
 }
 
 export interface SerieAMultipleTip {
+  leagueSlug?: string;
   competition: string;
   updatedAt: string;
   legs: SerieAMultipleLeg[];

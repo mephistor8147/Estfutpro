@@ -20,12 +20,14 @@ export function formatBrlCurrency(value: number): string {
 
 export function buildWhatsappSummaryText(payload: MultipleImagePayload): string {
   const { tip, legOdds, totalOdd, stake, potentialReturn, potentialProfit } = payload;
+  const isWorld = tip.leagueSlug === 'world';
   const lines = [
-    `*Dica Quente · Múltipla da Série A* (CampoStats)`,
+    `*Dica Quente · ${tip.competition}* (CampoStats)`,
     ``,
     ...tip.legs.map((leg, i) => {
       const odd = legOdds[i] ?? 1;
-      return `${i + 1}. *${leg.homeTeam} × ${leg.awayTeam}* (${leg.dateLabel})\n   Palpite: *${leg.marketLabel}* · ${leg.probabilityPct}% · Odd ${odd.toFixed(2)}`;
+      const compSuffix = isWorld && leg.competition ? ` · ${leg.competition}` : '';
+      return `${i + 1}. *${leg.homeTeam} × ${leg.awayTeam}* (${leg.dateLabel}${compSuffix})\n   Palpite: *${leg.marketLabel}* · ${leg.probabilityPct}% · Odd ${odd.toFixed(2)}`;
     }),
     ``,
     `Probabilidade combinada (Poisson): *${tip.combinedProbabilityPct}%*`,
@@ -152,8 +154,10 @@ export async function generateMultipleTipPng(
 
   cursorY += 56;
   ctx.fillStyle = '#F8FAFC';
-  ctx.font = '700 54px "Barlow Condensed", "Plus Jakarta Sans", system-ui, sans-serif';
-  ctx.fillText('DICA QUENTE · MÚLTIPLA DA SÉRIE A', paddingX, cursorY + 46);
+  const headerTitle = `DICA QUENTE · ${tip.competition.toUpperCase()}`;
+  const titleFontSize = headerTitle.length > 34 ? 42 : headerTitle.length > 26 ? 48 : 54;
+  ctx.font = `700 ${titleFontSize}px "Barlow Condensed", "Plus Jakarta Sans", system-ui, sans-serif`;
+  ctx.fillText(headerTitle, paddingX, cursorY + 46, cardWidth);
 
   cursorY += 68;
   const updatedStr = new Intl.DateTimeFormat('pt-BR', {
@@ -181,6 +185,7 @@ export async function generateMultipleTipPng(
   ctx.stroke();
 
   cursorY += 28;
+  const isWorld = tip.leagueSlug === 'world';
 
   // Leg Cards
   tip.legs.forEach((leg, idx) => {
@@ -197,10 +202,14 @@ export async function generateMultipleTipPng(
     const innerX = paddingX + 32;
     const innerRight = paddingX + cardWidth - 32;
 
-    // Top row: Jogo # + date | xG
+    // Top row: Jogo # + (league in world mode) + date | xG
     ctx.fillStyle = '#94A3B8';
     ctx.font = '600 22px "Plus Jakarta Sans", system-ui, sans-serif';
-    ctx.fillText(`JOGO ${idx + 1} · ${leg.dateLabel.toUpperCase()}`, innerX, cardY + 42);
+    const topLeftLabel =
+      isWorld && leg.competition
+        ? `JOGO ${idx + 1} · ${leg.competition.toUpperCase()} · ${leg.dateLabel.toUpperCase()}`
+        : `JOGO ${idx + 1} · ${leg.dateLabel.toUpperCase()}`;
+    ctx.fillText(topLeftLabel, innerX, cardY + 42, cardWidth - 260);
 
     const xgText = `xG ${leg.expectedGoalsHome.toFixed(1)} – ${leg.expectedGoalsAway.toFixed(1)}`;
     ctx.font = '600 22px "JetBrains Mono", monospace';
@@ -311,7 +320,7 @@ export async function generateMultipleTipPng(
   ctx.fillStyle = '#64748B';
   ctx.font = '500 20px "Plus Jakarta Sans", system-ui, sans-serif';
   ctx.fillText(
-    'Modelo Poisson · Dados ao vivo ESPN Série A · Análise estatística informativa',
+    `Modelo Poisson · Dados ao vivo ESPN (${tip.competition}) · Análise informativa`,
     paddingX,
     footerY
   );
@@ -325,9 +334,10 @@ export async function generateMultipleTipPng(
 
   const dataUrl = canvas.toDataURL('image/png');
   const dateTag = new Date().toISOString().slice(0, 10);
+  const slugPart = (tip.leagueSlug || 'multipla').replace(/[^a-z0-9-]+/gi, '-');
   return {
     blob,
     dataUrl,
-    fileName: `campostats-multipla-serie-a-${dateTag}.png`,
+    fileName: `campostats-multipla-${slugPart}-${dateTag}.png`,
   };
 }

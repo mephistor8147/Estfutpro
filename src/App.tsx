@@ -136,6 +136,7 @@ export default function App() {
   const [isLoadingFixtures, setIsLoadingFixtures] = useState(false);
   const [fixturesError, setFixturesError] = useState<string | null>(null);
 
+  const [selectedMultipleLeague, setSelectedMultipleLeague] = useState<string>('bra.1');
   const [multipleTip, setMultipleTip] = useState<SerieAMultipleTip | null>(null);
   const [isLoadingMultiple, setIsLoadingMultiple] = useState(false);
   const [multipleError, setMultipleError] = useState<string | null>(null);
@@ -186,32 +187,37 @@ export default function App() {
     }
   }, [activeTab, settings.championshipScope, fetchFixtures]);
 
-  const fetchSerieAMultiple = useCallback(async (forceRefresh = false) => {
-    setIsLoadingMultiple(true);
-    setMultipleError(null);
-    try {
-      const res = await fetch('/api/serie-a-multiple', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ forceRefresh }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json.error || 'Erro ao calcular a múltipla da Série A.');
+  const fetchMultipleTip = useCallback(
+    async (leagueSlug: string, forceRefresh = false) => {
+      setIsLoadingMultiple(true);
+      setMultipleError(null);
+      try {
+        const res = await fetch('/api/serie-a-multiple', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ league: leagueSlug, forceRefresh }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          throw new Error(
+            json.error || 'Erro ao calcular a múltipla desta competição.'
+          );
+        }
+        setMultipleTip(json as SerieAMultipleTip);
+      } catch (err: any) {
+        setMultipleError(
+          err?.message || 'Não foi possível carregar as dicas desta competição.'
+        );
+      } finally {
+        setIsLoadingMultiple(false);
       }
-      setMultipleTip(json as SerieAMultipleTip);
-    } catch (err: any) {
-      setMultipleError(
-        err?.message || 'Não foi possível carregar a múltipla da Série A.'
-      );
-    } finally {
-      setIsLoadingMultiple(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   useEffect(() => {
-    fetchSerieAMultiple(false);
-  }, [fetchSerieAMultiple]);
+    fetchMultipleTip(selectedMultipleLeague, false);
+  }, [selectedMultipleLeague, fetchMultipleTip]);
 
   const runAnalysis = useCallback(
     async (home: string, away: string, comp: string, forceRefresh = false) => {
@@ -276,11 +282,12 @@ export default function App() {
   };
 
   const handleSelectMultipleLeg = (leg: SerieAMultipleLeg) => {
+    const comp = leg.competition || multipleTip?.competition || 'Brasileirão Série A';
     setHomeTeamInput(leg.homeTeam);
     setAwayTeamInput(leg.awayTeam);
-    setCompetitionInput('Brasileirão Série A');
+    setCompetitionInput(comp);
     setActiveTab('analyzer');
-    runAnalysis(leg.homeTeam, leg.awayTeam, 'Brasileirão Série A');
+    runAnalysis(leg.homeTeam, leg.awayTeam, comp);
   };
 
   const model = useMemo(() => {
@@ -432,9 +439,11 @@ export default function App() {
           <div>
             <SerieAMultipleCard
               tip={multipleTip}
+              selectedLeague={selectedMultipleLeague}
               isLoading={isLoadingMultiple}
               error={multipleError}
-              onRefresh={() => fetchSerieAMultiple(true)}
+              onChangeLeague={(slug) => setSelectedMultipleLeague(slug)}
+              onRefresh={() => fetchMultipleTip(selectedMultipleLeague, true)}
               onSelectLeg={handleSelectMultipleLeg}
             />
 

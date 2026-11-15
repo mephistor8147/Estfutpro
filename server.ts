@@ -79,21 +79,30 @@ async function startServer() {
     try {
       const forceRefresh =
         Boolean(req.body?.forceRefresh) || req.query?.refresh === '1';
-      const tip = await getSerieAMultipleService(forceRefresh);
+      const league =
+        typeof req.body?.league === 'string'
+          ? req.body.league
+          : typeof req.query?.league === 'string'
+            ? req.query.league
+            : 'bra.1';
+      const tip = await getSerieAMultipleService(forceRefresh, league);
       res.json(tip);
     } catch (error: any) {
-      if (error?.message === 'NO_UPCOMING_SERIE_A_MATCHES') {
+      if (
+        error?.message === 'NO_UPCOMING_MULTIPLE_MATCHES' ||
+        error?.message === 'NO_UPCOMING_SERIE_A_MATCHES'
+      ) {
         res.status(404).json({
           error:
-            'Nenhum jogo futuro da Série A disponível no calendário oficial neste momento.',
+            'Nenhum jogo futuro encontrado para esta competição no calendário oficial neste momento. Selecione outra liga ou "Principais do Mundo".',
         });
         return;
       }
       const { status, message } = resolveApiError(
         error,
-        'Não foi possível calcular a múltipla da Série A agora.'
+        'Não foi possível calcular a múltipla desta competição agora.'
       );
-      console.error('Error building Serie A multiple:', error?.message || error);
+      console.error('Error building multiple tip:', error?.message || error);
       res.status(status).json({ error: message });
     }
   });

@@ -9,9 +9,10 @@ import type {
 } from '../types/football.js';
 import {
   analyzeMatchViaEspn,
-  buildSerieAMultipleViaEspn,
+  buildMultipleTipViaEspn,
   fetchEspnLiveFixtures,
 } from './espnProvider.js';
+import { MULTIPLE_COMPETITION_SET } from './competitions.js';
 
 const FIXTURES_TTL_MS = 30 * 60 * 1000;
 const ANALYSIS_TTL_MS = 15 * 60 * 1000;
@@ -27,10 +28,10 @@ const analysisCache = new Map<
   { payload: AnalysisResponsePayload; expiresAt: number }
 >();
 
-let serieAMultipleCache: {
-  tip: SerieAMultipleTip;
-  expiresAt: number;
-} | null = null;
+const multipleCache = new Map<
+  string,
+  { tip: SerieAMultipleTip; expiresAt: number }
+>();
 
 function getAiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -652,21 +653,26 @@ Nota sobre contextualImpactHome e contextualImpactAway: número conservador entr
 }
 
 export async function getSerieAMultipleService(
-  forceRefresh = false
+  forceRefresh = false,
+  leagueInput = 'bra.1'
 ): Promise<SerieAMultipleTip> {
-  if (!forceRefresh && serieAMultipleCache && serieAMultipleCache.expiresAt > Date.now()) {
-    return serieAMultipleCache.tip;
+  const normalized = String(leagueInput || 'bra.1').trim().toLowerCase();
+  const leagueKey = MULTIPLE_COMPETITION_SET.has(normalized) ? normalized : 'bra.1';
+
+  const cached = multipleCache.get(leagueKey);
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
+    return cached.tip;
   }
 
-  const tip = await buildSerieAMultipleViaEspn();
+  const tip = await buildMultipleTipViaEspn(leagueKey);
   if (!tip || tip.legs.length === 0) {
-    throw new Error('NO_UPCOMING_SERIE_A_MATCHES');
+    throw new Error('NO_UPCOMING_MULTIPLE_MATCHES');
   }
 
-  serieAMultipleCache = {
+  multipleCache.set(leagueKey, {
     tip,
     expiresAt: Date.now() + MULTIPLE_TTL_MS,
-  };
+  });
 
   return tip;
 }

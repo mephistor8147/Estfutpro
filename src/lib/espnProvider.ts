@@ -891,44 +891,77 @@ function formatUpcomingKickoffLabel(evDate: Date | null, fallbackDetail?: string
   }).format(evDate);
 }
 
-export async function buildSerieAMultipleViaEspn(): Promise<SerieAMultipleTip | null> {
-  const leagueSlug = 'bra.1';
-  const compLabel = 'Brasileirão Série A';
+const WORLD_MIX_LEAGUES = [
+  'bra.1',
+  'eng.1',
+  'esp.1',
+  'ita.1',
+  'ger.1',
+  'fra.1',
+  'uefa.champions',
+  'conmebol.libertadores',
+];
 
-  const [scoreboardJson, standingsJson] = await Promise.all([
-    fetchJson<any>(
-      `https://site.api.espn.com/apis/site/v2/sports/soccer/${leagueSlug}/scoreboard`,
-      7000
-    ),
-    fetchJson<any>(
-      `https://site.api.espn.com/apis/v2/sports/soccer/${leagueSlug}/standings`,
-      7000
-    ),
-  ]);
+function extractCalendarDates(scoreboardJson: any, todayIso: string, maxDates = 3): string[] {
+  const calendar: any[] = scoreboardJson?.leagues?.[0]?.calendar || [];
+  const dates: string[] = [];
+  for (const entry of calendar) {
+    const raw =
+      typeof entry === 'string'
+        ? entry
+        : typeof entry?.startDate === 'string'
+          ? entry.startDate
+          : '';
+    if (raw && raw.slice(0, 10) >= todayIso) {
+      dates.push(raw);
+      if (dates.length >= maxDates) break;
+    }
+  }
+  return dates;
+}
 
-  if (!scoreboardJson) return null;
+export async function buildMultipleTipViaEspn(
+  leagueKey = 'bra.1'
+): Promise<SerieAMultipleTip | null> {
+  const isWorldMix = leagueKey === 'world';
+  const targetLeagues = isWorldMix ? WORLD_MIX_LEAGUES : [leagueKey];
+  const compLabel = isWorldMix
+    ? 'Principais do Mundo (Misto)'
+    : LEAGUE_LABELS[leagueKey] || leagueKey.toUpperCase();
+
+  const initialScoreboards = await Promise.all(
+    targetLeagues.map(async (slug) => {
+      const json = await fetchJson<any>(
+        `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard`,
+        7000
+      );
+      return { slug, json };
+    })
+  );
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const calendar: string[] = scoreboardJson?.leagues?.[0]?.calendar || [];
-  const nextDates = calendar
-    .filter((d) => typeof d === 'string' && d.slice(0, 10) >= todayIso)
-    .slice(0, 3);
-
   const now = Date.now();
-  const extractUpcomingFromBatch = (batch: any) => {
-    const out: {
-      eventId: string;
-      timestamp: number;
-      dateLabel: string;
-      homeId: string;
-      homeName: string;
-      homeAbbr: string;
-      homeColor: string;
-      awayId: string;
-      awayName: string;
-      awayAbbr: string;
-      awayColor: string;
-    }[] = [];
+
+  interface CandidateMatch {
+    eventId: string;
+    leagueSlug: string;
+    compLabel: string;
+    timestamp: number;
+    dateLabel: string;
+    homeId: string;
+    homeName: string;
+    homeAbbr: string;
+    homeColor: string;
+    awayId: string;
+    awayName: string;
+    awayAbbr: string;
+    awayColor: string;
+  }
+
+  const extractUpcomingFromBatch = (batch: any, slug: string): CandidateMatch[] => {
+    const out: CandidateMatch[] = [];
+    const leagueTitle =
+      LEAGUE_LABELS[slug] || batch?.leagues?.[0]?.name || slug.toUpperCase();
 
     for (const ev of batch?.events || []) {
       const eventId = String(ev?.id || '');
@@ -951,78 +984,147 @@ export async function buildSerieAMultipleViaEspn(): Promise<SerieAMultipleTip | 
 
       out.push({
         eventId,
+        leagueSlug: slug,
+        compLabel: leagueTitle,
         timestamp,
         dateLabel: formatUpcomingKickoffLabel(evDate, statusType?.shortDetail),
         homeId: String(home.team.id),
         homeName: home.team.displayName || home.team.shortDisplayName || 'Mandante',
-        homeAbbr: (home.team.abbreviation || home.team.displayName || 'MAN').slice(0, 3).toUpperCase(),
+        homeAbbr: (home.team.abbreviation || home.team.displayName || 'MAN')
+          .slice(0, 3)
+          .toUpperCase(),
         homeColor: sanitizeHex(home.team.color, '#0F766E'),
         awayId: String(away.team.id),
         awayName: away.team.displayName || away.team.shortDisplayName || 'Visitante',
-        awayAbbr: (away.team.abbreviation || away.team.displayName || 'VIS').slice(0, 3).toUpperCase(),
+        awayAbbr: (away.team.abbreviation || away.team.displayName || 'VIS')
+          .slice(0, 3)
+          .toUpperCase(),
         awayColor: sanitizeHex(away.team.color, '#1D4ED8'),
       });
     }
     return out;
   };
 
-  const upcomingMap = new Map<string, ReturnType<typeof extractUpcomingFromBatch>[number]>();
-  for (const item of extractUpcomingFromBatch(scoreboardJson)) {
-    upcomingMap.set(item.eventId, item);
+  const upcomingMap = new Map<string, CandidateMatch>();
+  const extraDateFetches: Promise<{ slug: string; json: any }>[] = [];
+
+  for (const { slug, json } of initialScoreboards) {
+    if (!json) continue;
+    const found = extractUpcomingFromBatch(json, slug);
+    for (const item of found) {
+      upcomingMap.set(`${slug}:${item.eventId}`, item);
+    }
+
+    const minDesired = isWorldMix ? 2 : 5;
+    if (found.length < minDesired) {
+      const nextDates = extractCalendarDates(json, todayIso, isWorldMix ? 2 : 3);
+      for (const dateStr of nextDates) {
+        const ymd = dateStr.slice(0, 10).replace(/-/g, '');
+        extraDateFetches.push(
+          fetchJson<any>(
+            `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${ymd}`,
+            6000
+          ).then((batch) => ({ slug, json: batch }))
+        );
+      }
+    }
   }
 
-  if (upcomingMap.size < 5 && nextDates.length > 0) {
-    const extraBatches = await Promise.all(
-      nextDates.map((dateStr) =>
-        fetchJson<any>(
-          `https://site.api.espn.com/apis/site/v2/sports/soccer/${leagueSlug}/scoreboard?dates=${dateStr
-            .slice(0, 10)
-            .replace(/-/g, '')}`,
-          6000
-        )
-      )
-    );
-    for (const batch of extraBatches) {
-      for (const item of extractUpcomingFromBatch(batch)) {
-        if (!upcomingMap.has(item.eventId)) {
-          upcomingMap.set(item.eventId, item);
+  if (extraDateFetches.length > 0) {
+    const extraBatches = await Promise.all(extraDateFetches);
+    for (const { slug, json } of extraBatches) {
+      if (!json) continue;
+      for (const item of extractUpcomingFromBatch(json, slug)) {
+        const key = `${slug}:${item.eventId}`;
+        if (!upcomingMap.has(key)) {
+          upcomingMap.set(key, item);
         }
       }
     }
   }
 
-  const candidateMatches = Array.from(upcomingMap.values())
-    .sort((a, b) => a.timestamp - b.timestamp)
-    .slice(0, 6);
+  const allUpcoming = Array.from(upcomingMap.values()).sort(
+    (a, b) => a.timestamp - b.timestamp
+  );
+
+  let candidateMatches: CandidateMatch[];
+  if (isWorldMix) {
+    // Pick up to 2 soonest matches per league first for global diversity, max 8 total
+    const perLeagueCount = new Map<string, number>();
+    const diverse: CandidateMatch[] = [];
+    const overflow: CandidateMatch[] = [];
+    for (const m of allUpcoming) {
+      const count = perLeagueCount.get(m.leagueSlug) ?? 0;
+      if (count < 2) {
+        perLeagueCount.set(m.leagueSlug, count + 1);
+        diverse.push(m);
+      } else {
+        overflow.push(m);
+      }
+    }
+    candidateMatches = [...diverse, ...overflow].slice(0, 8);
+  } else {
+    candidateMatches = allUpcoming.slice(0, 6);
+  }
 
   if (candidateMatches.length === 0) {
     return null;
   }
 
-  const standingEntries: any[] = [];
-  for (const child of standingsJson?.children || []) {
-    if (Array.isArray(child?.standings?.entries)) {
-      standingEntries.push(...child.standings.entries);
+  const involvedLeagues = Array.from(
+    new Set(candidateMatches.map((m) => m.leagueSlug))
+  );
+  const teamLeaguePairs = Array.from(
+    new Map(
+      candidateMatches.flatMap((m) => [
+        [`${m.leagueSlug}:${m.homeId}`, { slug: m.leagueSlug, teamId: m.homeId }],
+        [`${m.leagueSlug}:${m.awayId}`, { slug: m.leagueSlug, teamId: m.awayId }],
+      ])
+    ).entries()
+  );
+
+  const [standingsResults, scheduleResults] = await Promise.all([
+    Promise.all(
+      involvedLeagues.map(async (slug) => {
+        const json = await fetchJson<any>(
+          `https://site.api.espn.com/apis/v2/sports/soccer/${slug}/standings`,
+          7000
+        );
+        return [slug, json] as const;
+      })
+    ),
+    Promise.all(
+      teamLeaguePairs.map(async ([key, pair]) => {
+        const json = await fetchJson<any>(
+          `https://site.api.espn.com/apis/site/v2/sports/soccer/${pair.slug}/teams/${pair.teamId}/schedule`,
+          6500
+        );
+        return [key, json] as const;
+      })
+    ),
+  ]);
+
+  const standingsJsonMap = new Map<string, any>(standingsResults);
+  const scheduleMap = new Map<string, any>(scheduleResults);
+
+  const standingsEntriesByLeague = new Map<string, any[]>();
+  for (const [slug, sJson] of standingsJsonMap.entries()) {
+    const entries: any[] = [];
+    for (const child of sJson?.children || []) {
+      if (Array.isArray(child?.standings?.entries)) {
+        entries.push(...child.standings.entries);
+      }
     }
+    standingsEntriesByLeague.set(slug, entries);
   }
 
-  const uniqueTeamIds = Array.from(
-    new Set(candidateMatches.flatMap((m) => [m.homeId, m.awayId]))
-  );
-
-  const scheduleEntries = await Promise.all(
-    uniqueTeamIds.map(async (teamId) => {
-      const json = await fetchJson<any>(
-        `https://site.api.espn.com/apis/site/v2/sports/soccer/${leagueSlug}/teams/${teamId}/schedule`,
-        6500
-      );
-      return [teamId, json] as const;
-    })
-  );
-  const scheduleMap = new Map<string, any>(scheduleEntries);
-
-  const buildStanding = (teamId: string, completedList: ParsedScheduleEvent[]): TeamStandingsStats => {
-    const entry = standingEntries.find((e) => String(e?.team?.id) === String(teamId));
+  const buildStanding = (
+    slug: string,
+    teamId: string,
+    completedList: ParsedScheduleEvent[]
+  ): TeamStandingsStats => {
+    const entries = standingsEntriesByLeague.get(slug) || [];
+    const entry = entries.find((e) => String(e?.team?.id) === String(teamId));
     const fallback = buildStandingsFromSchedule(completedList);
     if (!entry || !Array.isArray(entry.stats)) return fallback;
 
@@ -1061,31 +1163,31 @@ export async function buildSerieAMultipleViaEspn(): Promise<SerieAMultipleTip | 
   interface ScoredCandidateLeg {
     timestamp: number;
     score: number;
+    leagueSlug: string;
     marketType: '1X2' | 'DC' | 'O15' | 'O25' | 'BTTS';
     leg: SerieAMultipleLeg;
   }
 
   const scoredCandidates: ScoredCandidateLeg[] = [];
-  const seasonLabel = String(
-    standingsJson?.children?.[0]?.standings?.seasonDisplayName ||
-      new Date().getFullYear()
-  );
+  const defaultYear = String(new Date().getFullYear());
 
   for (const match of candidateMatches) {
-    const homeRaw = scheduleMap.get(match.homeId);
-    const awayRaw = scheduleMap.get(match.awayId);
+    const homeRaw = scheduleMap.get(`${match.leagueSlug}:${match.homeId}`);
+    const awayRaw = scheduleMap.get(`${match.leagueSlug}:${match.awayId}`);
 
-    const homeEvents = parseScheduleEvents(homeRaw, match.homeId, compLabel)
+    const homeEvents = parseScheduleEvents(homeRaw, match.homeId, match.compLabel)
       .filter((e) => e.completed)
       .sort((a, b) => b.timestamp - a.timestamp);
-    const awayEvents = parseScheduleEvents(awayRaw, match.awayId, compLabel)
+    const awayEvents = parseScheduleEvents(awayRaw, match.awayId, match.compLabel)
       .filter((e) => e.completed)
       .sort((a, b) => b.timestamp - a.timestamp);
 
-    const homeStandings = buildStanding(match.homeId, homeEvents);
-    const awayStandings = buildStanding(match.awayId, awayEvents);
+    const homeStandings = buildStanding(match.leagueSlug, match.homeId, homeEvents);
+    const awayStandings = buildStanding(match.leagueSlug, match.awayId, awayEvents);
 
-    const h2hEvents = homeEvents.filter((e) => String(e.opponentId) === match.awayId).slice(0, 5);
+    const h2hEvents = homeEvents
+      .filter((e) => String(e.opponentId) === match.awayId)
+      .slice(0, 5);
     const h2hHomeWins = h2hEvents.filter((e) => e.outcome === 'V').length;
     const h2hAwayWins = h2hEvents.filter((e) => e.outcome === 'D').length;
     const h2hDraws = h2hEvents.filter((e) => e.outcome === 'E').length;
@@ -1115,8 +1217,13 @@ export async function buildSerieAMultipleViaEspn(): Promise<SerieAMultipleTip | 
       else if (awayRest - homeRest >= 3) contextualImpactAway = 0.08;
     }
 
+    const sJson = standingsJsonMap.get(match.leagueSlug);
+    const seasonLabel = String(
+      sJson?.children?.[0]?.standings?.seasonDisplayName || defaultYear
+    );
+
     const analysisData: MatchAnalysisData = {
-      competition: compLabel,
+      competition: match.compLabel,
       season: seasonLabel,
       matchDateInfo: match.dateLabel,
       homeTeam: {
@@ -1132,8 +1239,8 @@ export async function buildSerieAMultipleViaEspn(): Promise<SerieAMultipleTip | 
         secondaryColor: '#FFFFFF',
       },
       module1LastFive: {
-        home: buildLastFiveStats(homeEvents, compLabel),
-        away: buildLastFiveStats(awayEvents, compLabel),
+        home: buildLastFiveStats(homeEvents, match.compLabel),
+        away: buildLastFiveStats(awayEvents, match.compLabel),
       },
       module2HeadToHead: {
         totalMatchesAnalyzed: h2hEvents.length,
@@ -1283,7 +1390,6 @@ export async function buildSerieAMultipleViaEspn(): Promise<SerieAMultipleTip | 
     }
 
     if (options.length === 0) {
-      // Fallback to highest-probability Double Chance or Over 1.5
       if (homeDoubleChance >= awayDoubleChance && homeDoubleChance >= poisson.over15Pct) {
         options.push({
           marketType: 'DC',
@@ -1311,12 +1417,14 @@ export async function buildSerieAMultipleViaEspn(): Promise<SerieAMultipleTip | 
     scoredCandidates.push({
       timestamp: match.timestamp,
       score: bestOpt.score,
+      leagueSlug: match.leagueSlug,
       marketType: bestOpt.marketType,
       leg: {
         homeTeam: match.homeName,
         awayTeam: match.awayName,
         homeShortCode: match.homeAbbr,
         awayShortCode: match.awayAbbr,
+        competition: match.compLabel,
         dateLabel: match.dateLabel,
         marketLabel: bestOpt.marketLabel,
         probabilityPct: bestOpt.probabilityPct,
@@ -1332,8 +1440,25 @@ export async function buildSerieAMultipleViaEspn(): Promise<SerieAMultipleTip | 
   }
 
   scoredCandidates.sort((a, b) => b.score - a.score);
-  const selected = scoredCandidates
-    .slice(0, 3)
+
+  let chosenCandidates: ScoredCandidateLeg[];
+  if (isWorldMix && new Set(scoredCandidates.map((c) => c.leagueSlug)).size >= 3) {
+    // Prefer up to 1 top pick per distinct league when mixing world leagues
+    const picked: ScoredCandidateLeg[] = [];
+    const seenLeagues = new Set<string>();
+    for (const cand of scoredCandidates) {
+      if (!seenLeagues.has(cand.leagueSlug)) {
+        seenLeagues.add(cand.leagueSlug);
+        picked.push(cand);
+        if (picked.length === 3) break;
+      }
+    }
+    chosenCandidates = picked;
+  } else {
+    chosenCandidates = scoredCandidates.slice(0, 3);
+  }
+
+  const selected = chosenCandidates
     .sort((a, b) => a.timestamp - b.timestamp)
     .map((item) => item.leg);
 
@@ -1345,11 +1470,18 @@ export async function buildSerieAMultipleViaEspn(): Promise<SerieAMultipleTip | 
   const fairOddEstimate = Number((1 / Math.max(0.01, combinedProduct)).toFixed(2));
 
   return {
+    leagueSlug: leagueKey,
     competition: compLabel,
     updatedAt: new Date().toISOString(),
     legs: selected,
     combinedProbabilityPct,
     fairOddEstimate,
-    sourceUrl: 'https://www.espn.com/soccer/scoreboard/_/league/bra.1',
+    sourceUrl: isWorldMix
+      ? 'https://www.espn.com/soccer/scoreboard'
+      : `https://www.espn.com/soccer/scoreboard/_/league/${leagueKey}`,
   };
+}
+
+export async function buildSerieAMultipleViaEspn(): Promise<SerieAMultipleTip | null> {
+  return buildMultipleTipViaEspn('bra.1');
 }

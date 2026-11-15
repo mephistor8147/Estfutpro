@@ -5,6 +5,7 @@ import {
   Copy,
   Download,
   Flame,
+  Globe,
   Image as ImageIcon,
   Loader2,
   RefreshCw,
@@ -12,6 +13,7 @@ import {
   Share2,
   X,
 } from 'lucide-react';
+import { MULTIPLE_COMPETITIONS } from '../lib/competitions.ts';
 import {
   buildWhatsappSummaryText,
   formatBrlCurrency,
@@ -21,8 +23,10 @@ import type { SerieAMultipleLeg, SerieAMultipleTip } from '../types/football';
 
 interface SerieAMultipleCardProps {
   tip: SerieAMultipleTip | null;
+  selectedLeague: string;
   isLoading: boolean;
   error: string | null;
+  onChangeLeague: (leagueSlug: string) => void;
   onRefresh: () => void;
   onSelectLeg: (leg: SerieAMultipleLeg) => void;
 }
@@ -40,11 +44,29 @@ function computeFairLegOdd(probabilityPct: number): string {
 
 export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
   tip,
+  selectedLeague,
   isLoading,
   error,
+  onChangeLeague,
   onRefresh,
   onSelectLeg,
 }) => {
+  const activeCompOption = useMemo(
+    () =>
+      MULTIPLE_COMPETITIONS.find((c) => c.slug === selectedLeague) ??
+      MULTIPLE_COMPETITIONS[0],
+    [selectedLeague]
+  );
+
+  const groupedCompetitions = useMemo(
+    () => ({
+      destaques: MULTIPLE_COMPETITIONS.filter((c) => c.region === 'destaques'),
+      americas: MULTIPLE_COMPETITIONS.filter((c) => c.region === 'americas'),
+      europa: MULTIPLE_COMPETITIONS.filter((c) => c.region === 'europa'),
+      mundo: MULTIPLE_COMPETITIONS.filter((c) => c.region === 'mundo'),
+    }),
+    []
+  );
   const [legOddInputs, setLegOddInputs] = useState<string[]>([]);
   const [customTotalOddInput, setCustomTotalOddInput] = useState<string | null>(null);
   const [stakeInput, setStakeInput] = useState<string>('50');
@@ -231,20 +253,20 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
 
   return (
     <section
-      aria-label="Dica quente de Múltipla da Série A"
+      aria-label="Dica quente de Múltipla"
       className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 shadow-xs mb-5"
     >
       {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Flame className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
             <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
-              Dica quente · Múltipla da Série A
+              Dica quente · {activeCompOption.label}
             </h2>
           </div>
 
-          {tip ? (
+          {tip && tip.leagueSlug === selectedLeague ? (
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
               {tip.competition} · {tip.legs.length}{' '}
               {tip.legs.length === 1 ? 'seleção' : 'seleções'} · Prob. combinada{' '}
@@ -259,24 +281,64 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
             </p>
           ) : (
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Combinada calculada pelo modelo Poisson com jogos futuros do Brasileirão Série A.
+              Combinada calculada pelo modelo Poisson com jogos futuros de competições pelo mundo.
             </p>
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={isLoading}
-          className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-60"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-          <span>Atualizar</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div className="relative flex-1 sm:flex-initial min-w-[210px]">
+            <Globe className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" />
+            <select
+              aria-label="Selecionar competição para dicas quentes"
+              value={selectedLeague}
+              onChange={(e) => onChangeLeague(e.target.value)}
+              disabled={isLoading}
+              className="w-full min-h-[44px] pl-8 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-600/30 focus:border-emerald-700 dark:focus:border-emerald-500 transition-colors disabled:opacity-60"
+            >
+              <optgroup label="Destaques">
+                {groupedCompetitions.destaques.map((comp) => (
+                  <option key={comp.slug} value={comp.slug}>
+                    {comp.label}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Europa">
+                {groupedCompetitions.europa.map((comp) => (
+                  <option key={comp.slug} value={comp.slug}>
+                    {comp.label}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Brasil & Américas">
+                {groupedCompetitions.americas.map((comp) => (
+                  <option key={comp.slug} value={comp.slug}>
+                    {comp.label}
+                  </option>
+                ))}
+                {groupedCompetitions.mundo.map((comp) => (
+                  <option key={comp.slug} value={comp.slug}>
+                    {comp.label}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </div>
+
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={isLoading}
+            className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-60"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>Atualizar</span>
+          </button>
+        </div>
       </div>
 
       {/* Body States */}
-      {isLoading && !tip ? (
+      {isLoading && (!tip || tip.leagueSlug !== selectedLeague) ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {[0, 1, 2].map((idx) => (
             <div
@@ -290,16 +352,27 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
             </div>
           ))}
         </div>
-      ) : error && !tip ? (
+      ) : error && (!tip || tip.leagueSlug !== selectedLeague) ? (
         <div className="rounded-xl border border-amber-200 dark:border-amber-800/70 bg-amber-50/70 dark:bg-amber-950/30 p-3.5 flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs sm:text-sm text-amber-900 dark:text-amber-200">{error}</p>
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="min-h-[44px] px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shrink-0"
-          >
-            Tentar novamente
-          </button>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {selectedLeague !== 'world' && (
+              <button
+                type="button"
+                onClick={() => onChangeLeague('world')}
+                className="min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold"
+              >
+                Ver Principais do Mundo
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onRefresh}
+              className="min-h-[44px] px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold"
+            >
+              Tentar novamente
+            </button>
+          </div>
         </div>
       ) : tip && tip.legs.length > 0 ? (
         <>
@@ -313,7 +386,11 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                     <span className="font-medium truncate">
-                      Jogo {idx + 1} · {leg.dateLabel}
+                      Jogo {idx + 1}
+                      {tip.leagueSlug === 'world' && leg.competition
+                        ? ` · ${leg.competition}`
+                        : ''}{' '}
+                      · {leg.dateLabel}
                     </span>
                     <span className="font-mono tabular-nums shrink-0">
                       xG {leg.expectedGoalsHome.toFixed(1)}–{leg.expectedGoalsAway.toFixed(1)}
@@ -551,7 +628,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
               rel="noreferrer"
               className="font-medium text-emerald-700 dark:text-emerald-400 hover:underline shrink-0"
             >
-              Fonte: ESPN Série A
+              Fonte: ESPN · {tip.competition}
             </a>
           </div>
         </>
