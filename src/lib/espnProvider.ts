@@ -1105,7 +1105,8 @@ export async function buildMultipleTipViaEspn(
   desiredCount = 3,
   onlyToday = false
 ): Promise<SerieAMultipleTip | null> {
-  const targetCount = desiredCount === 4 || desiredCount === 5 ? desiredCount : 3;
+  const targetCount =
+    desiredCount === 4 || desiredCount === 5 || desiredCount === 10 ? desiredCount : 3;
   const isTodayMode = leagueKey === 'today';
   const effectiveTodayOnly = isTodayMode || onlyToday;
   const isWorldMix = leagueKey === 'world' || isTodayMode;
@@ -1244,9 +1245,11 @@ export async function buildMultipleTipViaEspn(
         );
       }
     } else {
-      const minDesired = isWorldMix ? 2 : Math.max(5, targetCount + 2);
+      const minDesired = isWorldMix
+        ? Math.max(2, Math.ceil(targetCount / 3))
+        : Math.max(5, targetCount + 2);
       if (found.length < minDesired) {
-        const nextDates = extractCalendarDates(json, todayIso, isWorldMix ? 2 : 3);
+        const nextDates = extractCalendarDates(json, todayIso, isWorldMix ? 3 : 3);
         for (const dateStr of nextDates) {
           const ymd = dateStr.slice(0, 10).replace(/-/g, '');
           extraDateFetches.push(
@@ -1279,13 +1282,14 @@ export async function buildMultipleTipViaEspn(
 
   let candidateMatches: CandidateMatch[];
   if (isWorldMix) {
-    // Pick up to 2 soonest matches per league first for global diversity
+    // Pick up to N soonest matches per league first for global diversity
+    const maxPerLeague = targetCount >= 10 ? 4 : 2;
     const perLeagueCount = new Map<string, number>();
     const diverse: CandidateMatch[] = [];
     const overflow: CandidateMatch[] = [];
     for (const m of allUpcoming) {
       const count = perLeagueCount.get(m.leagueSlug) ?? 0;
-      if (count < 2) {
+      if (count < maxPerLeague) {
         perLeagueCount.set(m.leagueSlug, count + 1);
         diverse.push(m);
       } else {
@@ -1708,8 +1712,12 @@ export async function buildMultipleTipViaEspn(
     (acc, leg) => acc * (leg.probabilityPct / 100),
     1
   );
-  const combinedProbabilityPct = Math.max(1, Math.round(combinedProduct * 100));
-  const fairOddEstimate = Number((1 / Math.max(0.01, combinedProduct)).toFixed(2));
+  const rawCombinedPct = combinedProduct * 100;
+  const combinedProbabilityPct =
+    rawCombinedPct >= 1
+      ? Math.round(rawCombinedPct)
+      : Math.max(0.1, Number(rawCombinedPct.toFixed(1)));
+  const fairOddEstimate = Number((1 / Math.max(0.0001, combinedProduct)).toFixed(2));
 
   return {
     leagueSlug: leagueKey,

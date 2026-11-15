@@ -694,7 +694,8 @@ export async function getSerieAMultipleService(
   const normalized = String(leagueInput || 'today').trim().toLowerCase();
   const leagueKey = MULTIPLE_COMPETITION_SET.has(normalized) ? normalized : 'today';
   const parsedCount = Number(countInput);
-  const legCount = parsedCount === 4 || parsedCount === 5 ? parsedCount : 3;
+  const legCount =
+    parsedCount === 4 || parsedCount === 5 || parsedCount === 10 ? parsedCount : 3;
   const todayFlag = Boolean(onlyToday) || leagueKey === 'today';
   const cacheKey = `${leagueKey}::${legCount}::${todayFlag ? 'today' : 'next'}`;
 

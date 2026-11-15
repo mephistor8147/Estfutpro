@@ -25,12 +25,12 @@ import type { SerieAMultipleLeg, SerieAMultipleTip } from '../types/football';
 interface SerieAMultipleCardProps {
   tip: SerieAMultipleTip | null;
   selectedLeague: string;
-  selectedCount: 3 | 4 | 5;
+  selectedCount: 3 | 4 | 5 | 10;
   onlyToday: boolean;
   isLoading: boolean;
   error: string | null;
   onChangeLeague: (leagueSlug: string) => void;
-  onChangeCount: (count: 3 | 4 | 5) => void;
+  onChangeCount: (count: 3 | 4 | 5 | 10) => void;
   onToggleOnlyToday: (next: boolean) => void;
   onRefresh: () => void;
   onSelectLeg: (leg: SerieAMultipleLeg) => void;
@@ -272,11 +272,13 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
     Boolean(tip.onlyToday) !== effectiveOnlyToday;
 
   const gridColsClass =
-    selectedCount === 4
-      ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3'
-      : selectedCount === 5
-        ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3'
-        : 'grid grid-cols-1 md:grid-cols-3 gap-3';
+    selectedCount === 10
+      ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3'
+      : selectedCount === 4
+        ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3'
+        : selectedCount === 5
+          ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3'
+          : 'grid grid-cols-1 md:grid-cols-3 gap-3';
 
   return (
     <section
@@ -317,9 +319,9 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
           <div
             role="group"
             aria-label="Quantidade de times na múltipla"
-            className="w-full sm:w-auto grid grid-cols-3 sm:inline-flex items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-1 min-h-[44px]"
+            className="w-full sm:w-auto grid grid-cols-4 sm:inline-flex items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-1 min-h-[44px]"
           >
-            {([3, 4, 5] as const).map((cnt) => {
+            {([3, 4, 5, 10] as const).map((cnt) => {
               const active = selectedCount === cnt;
               return (
                 <button
@@ -328,7 +330,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                   onClick={() => onChangeCount(cnt)}
                   disabled={isLoading}
                   aria-pressed={active}
-                  className={`min-h-[36px] px-2.5 rounded-lg text-xs font-semibold tabular-nums whitespace-nowrap transition-colors disabled:opacity-60 ${
+                  className={`min-h-[36px] px-1.5 sm:px-2.5 rounded-lg text-[11px] sm:text-xs font-semibold tabular-nums whitespace-nowrap transition-colors disabled:opacity-60 ${
                     active
                       ? 'bg-emerald-700 dark:bg-emerald-600 text-white shadow-xs'
                       : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'

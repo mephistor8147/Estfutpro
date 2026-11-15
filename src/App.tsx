@@ -137,7 +137,7 @@ export default function App() {
   const [fixturesError, setFixturesError] = useState<string | null>(null);
 
   const [selectedMultipleLeague, setSelectedMultipleLeague] = useState<string>('today');
-  const [selectedMultipleCount, setSelectedMultipleCount] = useState<3 | 4 | 5>(3);
+  const [selectedMultipleCount, setSelectedMultipleCount] = useState<3 | 4 | 5 | 10>(3);
   const [onlyTodayMultiple, setOnlyTodayMultiple] = useState<boolean>(false);
   const [multipleTip, setMultipleTip] = useState<SerieAMultipleTip | null>(null);
   const [isLoadingMultiple, setIsLoadingMultiple] = useState(false);
@@ -192,7 +192,7 @@ export default function App() {
   const fetchMultipleTip = useCallback(
     async (
       leagueSlug: string,
-      legCount: 3 | 4 | 5,
+      legCount: 3 | 4 | 5 | 10,
       onlyToday: boolean,
       forceRefresh = false
     ) => {
