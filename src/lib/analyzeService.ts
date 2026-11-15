@@ -33,8 +33,25 @@ const multipleCache = new Map<
   { tip: SerieAMultipleTip; expiresAt: number }
 >();
 
+export function resolveGeminiApiKey(): string | null {
+  const candidates = [
+    process.env.GEMINI_API_KEY,
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    process.env.GOOGLE_API_KEY,
+    process.env.VITE_GEMINI_API_KEY,
+    process.env.API_KEY,
+  ];
+  for (const val of candidates) {
+    const trimmed = typeof val === 'string' ? val.trim() : '';
+    if (trimmed && trimmed !== 'MY_GEMINI_API_KEY') {
+      return trimmed;
+    }
+  }
+  return null;
+}
+
 function getAiClient(): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = resolveGeminiApiKey();
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY_MISSING');
   }
@@ -432,10 +449,18 @@ export function resolveApiError(error: any, fallbackMessage: string): { status: 
           ? 400
           : 500);
 
+  if (error?.message === 'ESPN_AND_GEMINI_UNAVAILABLE') {
+    return {
+      status: 404,
+      message:
+        'Não foi possível localizar um dos clubes na base ao vivo da ESPN. Verifique a grafia oficial dos times ou configure GEMINI_API_KEY nas variáveis de ambiente da Vercel.',
+    };
+  }
   if (error?.message === 'GEMINI_API_KEY_MISSING') {
     return {
       status: 400,
-      message: 'Chave da API Gemini não configurada nas variáveis de ambiente.',
+      message:
+        'Configure a variável GEMINI_API_KEY nas Environment Variables do projeto na Vercel (e faça Redeploy) para habilitar a busca web alternativa.',
     };
   }
   if (status === 429) {
@@ -479,6 +504,10 @@ export async function getFixturesService(params: {
       expiresAt: Date.now() + FIXTURES_TTL_MS,
     });
     return { fixtures: espnFixtures, updatedAt };
+  }
+
+  if (!resolveGeminiApiKey()) {
+    return { fixtures: [], updatedAt: new Date().toISOString() };
   }
 
   const todayStr = new Date().toISOString().split('T')[0];
@@ -551,6 +580,10 @@ export async function analyzeMatchService(params: {
       expiresAt: Date.now() + ANALYSIS_TTL_MS,
     });
     return espnPayload;
+  }
+
+  if (!resolveGeminiApiKey()) {
+    throw new Error('ESPN_AND_GEMINI_UNAVAILABLE');
   }
 
   const ai = getAiClient();

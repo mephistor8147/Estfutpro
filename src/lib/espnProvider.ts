@@ -70,11 +70,18 @@ function resolveLeagueSlug(competitionInput: string): string | null {
   return null;
 }
 
-async function fetchJson<T>(url: string, timeoutMs = 8000): Promise<T | null> {
+async function fetchJson<T>(url: string, timeoutMs = 9000): Promise<T | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json, text/plain, */*',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      },
+    });
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {
@@ -98,16 +105,99 @@ function sanitizeHex(hex?: string, fallback = '#0F766E'): string {
   return /^#[0-9A-Fa-f]{6}$/.test(clean) ? clean : fallback;
 }
 
+async function searchTeamInLeagueDirectory(
+  query: string,
+  leagueSlug: string
+): Promise<EspnSearchTeam | null> {
+  const data = await fetchJson<any>(
+    `https://site.api.espn.com/apis/site/v2/sports/soccer/${leagueSlug}/teams?limit=100`,
+    7000
+  );
+  const rawTeams: any[] = data?.sports?.[0]?.leagues?.[0]?.teams || [];
+  if (rawTeams.length === 0) return null;
+
+  const qNorm = normalizeText(query).replace(/[-_]+/g, ' ');
+  const qTokens = qNorm.split(/\s+/).filter((t) => t.length >= 2);
+
+  let bestTeam: any = null;
+  let bestScore = 0;
+
+  for (const wrapper of rawTeams) {
+    const t = wrapper?.team;
+    if (!t?.id) continue;
+    const candidates = [t.displayName, t.shortDisplayName, t.name, t.location, t.abbreviation]
+      .filter(Boolean)
+      .map((s: string) => normalizeText(s).replace(/[-_]+/g, ' '));
+
+    let score = 0;
+    for (const c of candidates) {
+      if (c === qNorm) score = Math.max(score, 100);
+      else if (c.includes(qNorm) || qNorm.includes(c)) score = Math.max(score, 65);
+      else if (qTokens.length > 0 && qTokens.every((tok) => c.includes(tok))) {
+        score = Math.max(score, 55);
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestTeam = t;
+    }
+  }
+
+  if (!bestTeam || bestScore < 50) return null;
+
+  return {
+    id: String(bestTeam.id),
+    displayName: bestTeam.displayName || bestTeam.name || query,
+    abbreviation: (bestTeam.abbreviation || bestTeam.displayName || 'TIM')
+      .slice(0, 3)
+      .toUpperCase(),
+    color: sanitizeHex(bestTeam.color, '#0F766E'),
+    alternateColor: sanitizeHex(bestTeam.alternateColor, '#FFFFFF'),
+    defaultLeagueSlug: leagueSlug,
+  };
+}
+
 async function searchEspnTeam(
   query: string,
   preferredSlug: string | null
 ): Promise<EspnSearchTeam | null> {
-  const url = `https://site.web.api.espn.com/apis/common/v3/search?query=${encodeURIComponent(
-    query
-  )}&limit=10&type=team`;
-  const data = await fetchJson<{ items?: any[] }>(url);
-  const items = (data?.items || []).filter((item) => item?.sport === 'soccer');
-  if (items.length === 0) return null;
+  const queryVariants = Array.from(
+    new Set([query.trim(), normalizeText(query).replace(/[-_]+/g, ' ')].filter(Boolean))
+  );
+
+  let items: any[] = [];
+  for (const q of queryVariants) {
+    const url = `https://site.web.api.espn.com/apis/common/v3/search?query=${encodeURIComponent(
+      q
+    )}&limit=10&type=team`;
+    const data = await fetchJson<{ items?: any[] }>(url, 7000);
+    items = (data?.items || []).filter((item) => item?.sport === 'soccer');
+    if (items.length > 0) break;
+  }
+
+  if (items.length === 0) {
+    const fallbackSlugs = Array.from(
+      new Set(
+        [
+          preferredSlug,
+          'bra.1',
+          'eng.1',
+          'esp.1',
+          'ita.1',
+          'ger.1',
+          'fra.1',
+          'uefa.champions',
+          'conmebol.libertadores',
+        ].filter((s): s is string => Boolean(s))
+      )
+    ).slice(0, 4);
+
+    for (const slug of fallbackSlugs) {
+      const found = await searchTeamInLeagueDirectory(query, slug);
+      if (found) return found;
+    }
+    return null;
+  }
 
   // Filter out youth / women / reserve squads unless user specifically asked
   const qNorm = normalizeText(query);

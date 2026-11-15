@@ -8,6 +8,7 @@ import {
   getFixturesService,
   getSerieAMultipleService,
   resolveApiError,
+  resolveGeminiApiKey,
 } from './src/lib/analyzeService.js';
 
 dotenv.config();
@@ -22,7 +23,12 @@ async function startServer() {
   app.use(express.json({ limit: '1mb' }));
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, runtime: 'express', timestamp: new Date().toISOString() });
+    res.json({
+      ok: true,
+      runtime: 'express',
+      hasGeminiKey: Boolean(resolveGeminiApiKey()),
+      timestamp: new Date().toISOString(),
+    });
   });
 
   app.post('/api/fixtures', async (req, res) => {

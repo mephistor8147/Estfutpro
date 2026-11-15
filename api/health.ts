@@ -1,3 +1,4 @@
+import { resolveGeminiApiKey } from '../src/lib/analyzeService.js';
 import { sendJson, type VercelReq, type VercelRes } from './_http.js';
 
 export default function handler(req: VercelReq, res: VercelRes) {
@@ -5,5 +6,10 @@ export default function handler(req: VercelReq, res: VercelRes) {
     sendJson(res, 405, { error: 'Method Not Allowed' });
     return;
   }
-  sendJson(res, 200, { ok: true, runtime: 'vercel', timestamp: new Date().toISOString() });
+  sendJson(res, 200, {
+    ok: true,
+    runtime: 'vercel',
+    hasGeminiKey: Boolean(resolveGeminiApiKey()),
+    timestamp: new Date().toISOString(),
+  });
 }
