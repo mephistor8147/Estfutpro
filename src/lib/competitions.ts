@@ -6,6 +6,7 @@ export interface MultipleCompetitionOption {
 
 export const MULTIPLE_COMPETITIONS: MultipleCompetitionOption[] = [
   { slug: 'today', label: 'Jogos de Hoje (Mundial)', region: 'destaques' },
+  { slug: 'tomorrow', label: 'Jogos de Amanhã (Mundial)', region: 'destaques' },
   { slug: 'bra.1', label: 'Brasileirão Série A', region: 'destaques' },
   { slug: 'world', label: 'Principais do Mundo (Misto)', region: 'destaques' },
   { slug: 'uefa.champions', label: 'UEFA Champions League', region: 'destaques' },

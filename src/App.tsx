@@ -18,10 +18,17 @@ import { ProbabilityHero } from './components/ProbabilityHero.tsx';
 import { ModulesView } from './components/ModulesView.tsx';
 import { HistoryView } from './components/HistoryView.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
-import { SerieAMultipleCard } from './components/SerieAMultipleCard.tsx';
+import {
+  SerieAMultipleCard,
+  type SaveMultiplePayload,
+} from './components/SerieAMultipleCard.tsx';
 import type {
   AnalysisResponsePayload,
   AppSettings,
+  MultipleDayFilter,
+  MultipleHistoryItem,
+  MultipleLegStatus,
+  MultipleTipStatus,
   PredictionHistoryItem,
   SerieAMultipleLeg,
   SerieAMultipleTip,
@@ -33,6 +40,7 @@ type ThemeMode = 'light' | 'dark';
 
 const STORAGE_SETTINGS_KEY = 'campostats_settings_v1';
 const STORAGE_HISTORY_KEY = 'campostats_history_v1';
+const STORAGE_MULTIPLE_HISTORY_KEY = 'campostats_multiple_history_v1';
 const STORAGE_THEME_KEY = 'campostats_theme_v1';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -119,6 +127,24 @@ export default function App() {
     return [];
   });
 
+  const [multipleHistory, setMultipleHistory] = useState<MultipleHistoryItem[]>(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_MULTIPLE_HISTORY_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch {
+      // Ignore storage errors
+    }
+    return [];
+  });
+
+  const [historyInitialSection, setHistoryInitialSection] = useState<
+    'multiple' | 'analysis'
+  >('multiple');
+  const [isCheckingMultipleResults, setIsCheckingMultipleResults] = useState(false);
+  const [multipleCheckMessage, setMultipleCheckMessage] = useState<string | null>(
+    null
+  );
+
   const [homeTeamInput, setHomeTeamInput] = useState('Flamengo');
   const [awayTeamInput, setAwayTeamInput] = useState('Palmeiras');
   const [competitionInput, setCompetitionInput] = useState('Brasileirão Série A');
@@ -138,7 +164,7 @@ export default function App() {
 
   const [selectedMultipleLeague, setSelectedMultipleLeague] = useState<string>('today');
   const [selectedMultipleCount, setSelectedMultipleCount] = useState<3 | 4 | 5 | 10>(3);
-  const [onlyTodayMultiple, setOnlyTodayMultiple] = useState<boolean>(false);
+  const [multipleDayFilter, setMultipleDayFilter] = useState<MultipleDayFilter>('today');
   const [multipleTip, setMultipleTip] = useState<SerieAMultipleTip | null>(null);
   const [isLoadingMultiple, setIsLoadingMultiple] = useState(false);
   const [multipleError, setMultipleError] = useState<string | null>(null);
@@ -158,6 +184,17 @@ export default function App() {
       // Ignore
     }
   }, [history]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        STORAGE_MULTIPLE_HISTORY_KEY,
+        JSON.stringify(multipleHistory)
+      );
+    } catch {
+      // Ignore
+    }
+  }, [multipleHistory]);
 
   const fetchFixtures = useCallback(
     async (scope: AppSettings['championshipScope'], forceRefresh = false) => {
@@ -193,7 +230,7 @@ export default function App() {
     async (
       leagueSlug: string,
       legCount: 3 | 4 | 5 | 10,
-      onlyToday: boolean,
+      dayFilter: MultipleDayFilter,
       forceRefresh = false
     ) => {
       setIsLoadingMultiple(true);
@@ -205,7 +242,8 @@ export default function App() {
           body: JSON.stringify({
             league: leagueSlug,
             count: legCount,
-            onlyToday,
+            dayFilter,
+            onlyToday: dayFilter === 'today',
             forceRefresh,
           }),
         });
@@ -231,10 +269,10 @@ export default function App() {
     fetchMultipleTip(
       selectedMultipleLeague,
       selectedMultipleCount,
-      onlyTodayMultiple,
+      multipleDayFilter,
       false
     );
-  }, [selectedMultipleLeague, selectedMultipleCount, onlyTodayMultiple, fetchMultipleTip]);
+  }, [selectedMultipleLeague, selectedMultipleCount, multipleDayFilter, fetchMultipleTip]);
 
   const runAnalysis = useCallback(
     async (home: string, away: string, comp: string, forceRefresh = false) => {
@@ -376,6 +414,252 @@ export default function App() {
     setActiveTab('analyzer');
   };
 
+  const currentTipSignature = useMemo(() => {
+    if (!multipleTip) return '';
+    return multipleTip.legs
+      .map((l) => `${l.homeTeam}|${l.awayTeam}|${l.marketLabel}`)
+      .join('||');
+  }, [multipleTip]);
+
+  const isMultipleSavedInHistory = useMemo(() => {
+    if (!currentTipSignature) return false;
+    return multipleHistory.some((item) => item.tipSignature === currentTipSignature);
+  }, [currentTipSignature, multipleHistory]);
+
+  const multipleHistorySummary = useMemo(
+    () => ({
+      total: multipleHistory.length,
+      won: multipleHistory.filter((m) => m.status === 'won').length,
+      lost: multipleHistory.filter((m) => m.status === 'lost').length,
+      pending: multipleHistory.filter((m) => m.status === 'pending').length,
+    }),
+    [multipleHistory]
+  );
+
+  const handleChangeMultipleLeague = (slug: string) => {
+    setSelectedMultipleLeague(slug);
+    if (slug === 'today') {
+      setMultipleDayFilter('today');
+    } else if (slug === 'tomorrow') {
+      setMultipleDayFilter('tomorrow');
+    } else if (slug === 'world') {
+      setMultipleDayFilter('all');
+    }
+  };
+
+  const handleChangeMultipleDayFilter = (next: MultipleDayFilter) => {
+    setMultipleDayFilter(next);
+    if (next === 'tomorrow') {
+      if (
+        selectedMultipleLeague === 'today' ||
+        selectedMultipleLeague === 'world'
+      ) {
+        setSelectedMultipleLeague('tomorrow');
+      }
+    } else if (next === 'today') {
+      if (
+        selectedMultipleLeague === 'tomorrow' ||
+        selectedMultipleLeague === 'world'
+      ) {
+        setSelectedMultipleLeague('today');
+      }
+    } else {
+      if (
+        selectedMultipleLeague === 'today' ||
+        selectedMultipleLeague === 'tomorrow'
+      ) {
+        setSelectedMultipleLeague('world');
+      }
+    }
+  };
+
+  const handleSaveMultipleTip = (payload: SaveMultiplePayload) => {
+    if (!currentTipSignature || isMultipleSavedInHistory) return;
+    const item: MultipleHistoryItem = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      tipSignature: currentTipSignature,
+      createdAt: new Date().toISOString(),
+      competition: payload.tip.competition,
+      leagueSlug: payload.tip.leagueSlug || selectedMultipleLeague,
+      dayFilter:
+        payload.tip.dayFilter ??
+        (payload.tip.onlyToday ? 'today' : multipleDayFilter),
+      legs: payload.tip.legs.map((leg, idx) => ({
+        ...leg,
+        odd: payload.legOdds[idx] ?? 1,
+        status: 'pending',
+      })),
+      combinedProbabilityPct: payload.tip.combinedProbabilityPct,
+      totalOdd: payload.totalOdd,
+      stake: payload.stake,
+      potentialReturn: payload.potentialReturn,
+      status: 'pending',
+    };
+    setMultipleHistory((prev) => [item, ...prev]);
+  };
+
+  const deriveTipStatus = (legs: { status: MultipleLegStatus }[]): MultipleTipStatus => {
+    if (legs.some((l) => l.status === 'lost')) return 'lost';
+    if (legs.length > 0 && legs.every((l) => l.status === 'won')) return 'won';
+    return 'pending';
+  };
+
+  const handleUpdateMultipleLegStatus = (
+    itemId: string,
+    legIndex: number,
+    status: MultipleLegStatus
+  ) => {
+    setMultipleHistory((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        const nextLegs = item.legs.map((leg, idx) =>
+          idx === legIndex ? { ...leg, status } : leg
+        );
+        const nextStatus = deriveTipStatus(nextLegs);
+        return {
+          ...item,
+          legs: nextLegs,
+          status: nextStatus,
+          resolvedAt: nextStatus === 'pending' ? undefined : new Date().toISOString(),
+        };
+      })
+    );
+  };
+
+  const handleResolveMultipleTip = (itemId: string, status: MultipleTipStatus) => {
+    setMultipleHistory((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        const nextLegs =
+          status === 'won'
+            ? item.legs.map((leg) => ({ ...leg, status: 'won' as MultipleLegStatus }))
+            : status === 'pending'
+              ? item.legs.map((leg) => ({
+                  ...leg,
+                  status: 'pending' as MultipleLegStatus,
+                }))
+              : item.legs;
+        return {
+          ...item,
+          legs: nextLegs,
+          status,
+          resolvedAt: status === 'pending' ? undefined : new Date().toISOString(),
+        };
+      })
+    );
+  };
+
+  const handleDeleteMultipleItem = (itemId: string) => {
+    setMultipleHistory((prev) => prev.filter((item) => item.id !== itemId));
+  };
+
+  const handleCheckMultipleResults = async () => {
+    const pendingLegs: {
+      eventId?: string;
+      leagueSlug?: string;
+      homeTeam: string;
+      awayTeam: string;
+      marketLabel: string;
+    }[] = [];
+
+    for (const item of multipleHistory) {
+      for (const leg of item.legs) {
+        if (leg.eventId && leg.leagueSlug && leg.status === 'pending') {
+          pendingLegs.push({
+            eventId: leg.eventId,
+            leagueSlug: leg.leagueSlug,
+            homeTeam: leg.homeTeam,
+            awayTeam: leg.awayTeam,
+            marketLabel: leg.marketLabel,
+          });
+        }
+      }
+    }
+
+    if (pendingLegs.length === 0) {
+      setMultipleCheckMessage(
+        'Nenhum jogo pendente com ID automático encontrado. Você pode marcar os acertos e perdas manualmente abaixo.'
+      );
+      return;
+    }
+
+    setIsCheckingMultipleResults(true);
+    setMultipleCheckMessage(null);
+
+    try {
+      const res = await fetch('/api/multiple-results', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ legs: pendingLegs }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || 'Erro ao verificar placares.');
+      }
+
+      const results: Array<{
+        eventId: string;
+        leagueSlug: string;
+        completed: boolean;
+        status: MultipleLegStatus;
+        actualScore?: {
+          homeGoals: number;
+          awayGoals: number;
+          statusDetail?: string;
+        };
+      }> = Array.isArray(json.results) ? json.results : [];
+
+      const byKey = new Map(
+        results
+          .filter((r) => r.completed)
+          .map((r) => [`${r.leagueSlug}:${r.eventId}`, r])
+      );
+
+      let updatedLegsCount = 0;
+
+      setMultipleHistory((prev) =>
+        prev.map((item) => {
+          let changed = false;
+          const nextLegs = item.legs.map((leg) => {
+            if (!leg.eventId || !leg.leagueSlug) return leg;
+            const match = byKey.get(`${leg.leagueSlug}:${leg.eventId}`);
+            if (!match || !match.completed) return leg;
+            changed = true;
+            updatedLegsCount += 1;
+            return {
+              ...leg,
+              status: match.status,
+              actualScore: match.actualScore,
+            };
+          });
+          if (!changed) return item;
+          const nextStatus = deriveTipStatus(nextLegs);
+          return {
+            ...item,
+            legs: nextLegs,
+            status: nextStatus,
+            resolvedAt:
+              nextStatus === 'pending' ? undefined : new Date().toISOString(),
+          };
+        })
+      );
+
+      setMultipleCheckMessage(
+        updatedLegsCount > 0
+          ? `${updatedLegsCount} ${
+              updatedLegsCount === 1 ? 'jogo finalizado atualizado' : 'jogos finalizados atualizados'
+            } com placar oficial ESPN.`
+          : 'Nenhum jogo pendente foi encerrado até o momento.'
+      );
+    } catch (err: any) {
+      setMultipleCheckMessage(
+        err?.message || 'Não foi possível verificar placares na ESPN agora.'
+      );
+    } finally {
+      setIsCheckingMultipleResults(false);
+    }
+  };
+
   const navItems: {
     id: AppTab;
     label: string;
@@ -458,21 +742,28 @@ export default function App() {
               tip={multipleTip}
               selectedLeague={selectedMultipleLeague}
               selectedCount={selectedMultipleCount}
-              onlyToday={onlyTodayMultiple}
+              dayFilter={multipleDayFilter}
               isLoading={isLoadingMultiple}
               error={multipleError}
-              onChangeLeague={(slug) => setSelectedMultipleLeague(slug)}
+              isSavedInHistory={isMultipleSavedInHistory}
+              multipleHistorySummary={multipleHistorySummary}
+              onChangeLeague={handleChangeMultipleLeague}
               onChangeCount={(cnt) => setSelectedMultipleCount(cnt)}
-              onToggleOnlyToday={(next) => setOnlyTodayMultiple(next)}
+              onChangeDayFilter={handleChangeMultipleDayFilter}
               onRefresh={() =>
                 fetchMultipleTip(
                   selectedMultipleLeague,
                   selectedMultipleCount,
-                  onlyTodayMultiple,
+                  multipleDayFilter,
                   true
                 )
               }
               onSelectLeg={handleSelectMultipleLeg}
+              onSaveToHistory={handleSaveMultipleTip}
+              onOpenMultipleHistory={() => {
+                setHistoryInitialSection('multiple');
+                setActiveTab('history');
+              }}
             />
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
@@ -550,13 +841,13 @@ export default function App() {
                       placeholder="Ex: Brasileirão Série A, Champions League"
                       className="w-full min-h-[44px] px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-600/30 focus:border-emerald-700 dark:focus:border-emerald-500"
                     />
-                    <div className="mt-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {QUICK_LEAGUES.map((league) => (
                         <button
                           key={league}
                           type="button"
                           onClick={() => setCompetitionInput(league)}
-                          className={`min-h-[40px] px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 transition-colors border ${
+                          className={`min-h-[44px] px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border ${
                             competitionInput === league
                               ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900 dark:border-slate-100'
                               : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
@@ -686,7 +977,7 @@ export default function App() {
                   type="button"
                   onClick={() => fetchFixtures(settings.championshipScope, true)}
                   disabled={isLoadingFixtures}
-                  className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 shrink-0"
+                  className="w-full sm:w-auto min-h-[44px] px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 shrink-0"
                 >
                   <RefreshCw
                     className={`w-3.5 h-3.5 ${isLoadingFixtures ? 'animate-spin' : ''}`}
@@ -799,9 +1090,17 @@ export default function App() {
         {activeTab === 'history' && (
           <HistoryView
             history={history}
+            multipleHistory={multipleHistory}
+            initialSection={historyInitialSection}
+            isCheckingMultipleResults={isCheckingMultipleResults}
+            multipleCheckMessage={multipleCheckMessage}
             onRecordScore={handleRecordScore}
             onDeleteItem={handleDeleteHistory}
             onLoadSnapshot={handleLoadSnapshot}
+            onUpdateMultipleLegStatus={handleUpdateMultipleLegStatus}
+            onResolveMultipleTip={handleResolveMultipleTip}
+            onDeleteMultipleItem={handleDeleteMultipleItem}
+            onCheckMultipleResults={handleCheckMultipleResults}
           />
         )}
 
@@ -816,12 +1115,12 @@ export default function App() {
         )}
       </main>
 
-      {/* Mobile Fixed Bottom Navigation Bar (Natural Thumb Zone, 56px height) */}
+      {/* Mobile Fixed Bottom Navigation Bar (Natural Thumb Zone) */}
       <nav
         aria-label="Navegação principal móvel"
         className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800 pb-safe"
       >
-        <div className="grid grid-cols-5 items-center h-14">
+        <div className="grid grid-cols-5 items-center min-h-[56px]">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = activeTab === item.id;
@@ -830,13 +1129,13 @@ export default function App() {
                 key={item.id}
                 type="button"
                 onClick={() => setActiveTab(item.id)}
-                className={`h-full min-h-[44px] flex flex-col items-center justify-center transition-colors ${
+                className={`min-h-[52px] px-1 py-1.5 flex flex-col items-center justify-center transition-colors ${
                   active
                     ? 'text-emerald-700 dark:text-emerald-400'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
-                <Icon className={`w-5 h-5 ${active ? 'stroke-[2.25]' : 'stroke-[1.75]'}`} />
+                <Icon className={`w-5 h-5 shrink-0 ${active ? 'stroke-[2.25]' : 'stroke-[1.75]'}`} />
                 <span className="text-[10px] font-medium tracking-tight mt-0.5 whitespace-nowrap">
                   {item.label}
                 </span>

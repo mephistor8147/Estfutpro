@@ -214,7 +214,13 @@ export interface SuggestedFixture {
   dateLabel: string;
 }
 
+export type MultipleDayFilter = 'all' | 'today' | 'tomorrow';
+export type MultipleLegStatus = 'pending' | 'won' | 'lost';
+export type MultipleTipStatus = 'pending' | 'won' | 'lost';
+
 export interface SerieAMultipleLeg {
+  eventId?: string;
+  leagueSlug?: string;
   homeTeam: string;
   awayTeam: string;
   homeShortCode: string;
@@ -232,10 +238,37 @@ export interface SerieAMultipleTip {
   leagueSlug?: string;
   requestedCount?: number;
   onlyToday?: boolean;
+  dayFilter?: MultipleDayFilter;
   competition: string;
   updatedAt: string;
   legs: SerieAMultipleLeg[];
   combinedProbabilityPct: number;
   fairOddEstimate: number;
   sourceUrl: string;
+}
+
+export interface MultipleHistoryLeg extends SerieAMultipleLeg {
+  odd: number;
+  status: MultipleLegStatus;
+  actualScore?: {
+    homeGoals: number;
+    awayGoals: number;
+    statusDetail?: string;
+  };
+}
+
+export interface MultipleHistoryItem {
+  id: string;
+  tipSignature: string;
+  createdAt: string;
+  competition: string;
+  leagueSlug: string;
+  dayFilter: MultipleDayFilter;
+  legs: MultipleHistoryLeg[];
+  combinedProbabilityPct: number;
+  totalOdd: number;
+  stake: number;
+  potentialReturn: number;
+  status: MultipleTipStatus;
+  resolvedAt?: string;
 }

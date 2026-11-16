@@ -5,6 +5,8 @@ import type {
   HeadToHeadMatch,
   MatchAnalysisData,
   MatchOutcome,
+  MultipleDayFilter,
+  MultipleLegStatus,
   RecentMatchItem,
   SerieAMultipleLeg,
   SerieAMultipleTip,
@@ -1103,42 +1105,65 @@ function extractCalendarDates(scoreboardJson: any, todayIso: string, maxDates = 
 export async function buildMultipleTipViaEspn(
   leagueKey = 'today',
   desiredCount = 3,
-  onlyToday = false
+  dayFilterInput: MultipleDayFilter | boolean = 'all'
 ): Promise<SerieAMultipleTip | null> {
   const targetCount =
     desiredCount === 4 || desiredCount === 5 || desiredCount === 10 ? desiredCount : 3;
-  const isTodayMode = leagueKey === 'today';
-  const effectiveTodayOnly = isTodayMode || onlyToday;
-  const isWorldMix = leagueKey === 'world' || isTodayMode;
 
-  const targetLeagues = isTodayMode
+  const effectiveDayFilter: MultipleDayFilter =
+    leagueKey === 'today'
+      ? 'today'
+      : leagueKey === 'tomorrow'
+        ? 'tomorrow'
+        : typeof dayFilterInput === 'boolean'
+          ? dayFilterInput
+            ? 'today'
+            : 'all'
+          : dayFilterInput;
+
+  const isGlobalDayMode = leagueKey === 'today' || leagueKey === 'tomorrow';
+  const isDateRestricted = effectiveDayFilter !== 'all';
+  const isWorldMix = leagueKey === 'world' || isGlobalDayMode;
+
+  const targetLeagues = isGlobalDayMode
     ? TODAY_ALL_LEAGUES
     : leagueKey === 'world'
       ? WORLD_MIX_LEAGUES
       : [leagueKey];
 
-  const baseCompLabel = isTodayMode
-    ? 'Jogos de Hoje (Mundial)'
-    : leagueKey === 'world'
-      ? 'Principais do Mundo (Misto)'
-      : LEAGUE_LABELS[leagueKey] || leagueKey.toUpperCase();
-  const compLabel =
-    onlyToday && !isTodayMode ? `${baseCompLabel} · Hoje` : baseCompLabel;
+  const baseCompLabel =
+    leagueKey === 'today'
+      ? 'Jogos de Hoje (Mundial)'
+      : leagueKey === 'tomorrow'
+        ? 'Jogos de Amanhã (Mundial)'
+        : leagueKey === 'world'
+          ? 'Principais do Mundo (Misto)'
+          : LEAGUE_LABELS[leagueKey] || leagueKey.toUpperCase();
+
+  const compLabel = !isGlobalDayMode
+    ? effectiveDayFilter === 'today'
+      ? `${baseCompLabel} · Hoje`
+      : effectiveDayFilter === 'tomorrow'
+        ? `${baseCompLabel} · Amanhã`
+        : baseCompLabel
+    : baseCompLabel;
 
   const nowDate = new Date();
-  const todayBrtIso = BRT_DAY_FORMATTER.format(nowDate);
-  const tomorrowBrtIso = BRT_DAY_FORMATTER.format(
-    new Date(nowDate.getTime() + 24 * 60 * 60 * 1000)
+  const offsetDays = effectiveDayFilter === 'tomorrow' ? 1 : 0;
+  const targetBrtRefDate = new Date(nowDate.getTime() + offsetDays * 24 * 60 * 60 * 1000);
+  const targetBrtIso = BRT_DAY_FORMATTER.format(targetBrtRefDate);
+  const lookaheadBrtIso = BRT_DAY_FORMATTER.format(
+    new Date(targetBrtRefDate.getTime() + 24 * 60 * 60 * 1000)
   );
-  const todayBrtYmd = todayBrtIso.replace(/-/g, '');
-  const tomorrowBrtYmd = tomorrowBrtIso.replace(/-/g, '');
+  const targetBrtYmd = targetBrtIso.replace(/-/g, '');
+  const lookaheadBrtYmd = lookaheadBrtIso.replace(/-/g, '');
   const todayIso = nowDate.toISOString().slice(0, 10);
   const now = Date.now();
 
   const initialScoreboards = await Promise.all(
     targetLeagues.map(async (slug) => {
-      const url = effectiveTodayOnly
-        ? `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${todayBrtYmd}`
+      const url = isDateRestricted
+        ? `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${targetBrtYmd}`
         : `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard`;
       const json = await fetchJson<any>(url, 7000);
       return { slug, json };
@@ -1180,9 +1205,9 @@ export async function buildMultipleTipViaEspn(
       const timestamp = evDate && !Number.isNaN(evDate.getTime()) ? evDate.getTime() : 0;
       if (!timestamp || timestamp < now - 20 * 60 * 1000) continue;
 
-      if (effectiveTodayOnly && evDate) {
+      if (isDateRestricted && evDate) {
         const evBrtDay = BRT_DAY_FORMATTER.format(evDate);
-        if (evBrtDay !== todayBrtIso) continue;
+        if (evBrtDay !== targetBrtIso) continue;
       }
 
       const competitors = comp?.competitors || [];
@@ -1234,12 +1259,18 @@ export async function buildMultipleTipViaEspn(
       upcomingMap.set(`${slug}:${item.eventId}`, item);
     }
 
-    if (effectiveTodayOnly) {
-      // Late evening BRT matches (after 21:00 BRT) fall on tomorrow UTC date in ESPN
-      if (!isTodayMode || slug.startsWith('bra.') || slug.startsWith('conmebol.') || slug === 'arg.1' || slug === 'usa.1') {
+    if (isDateRestricted) {
+      // Late evening BRT matches (after 21:00 BRT) fall on next UTC date in ESPN
+      if (
+        !isGlobalDayMode ||
+        slug.startsWith('bra.') ||
+        slug.startsWith('conmebol.') ||
+        slug === 'arg.1' ||
+        slug === 'usa.1'
+      ) {
         extraDateFetches.push(
           fetchJson<any>(
-            `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${tomorrowBrtYmd}`,
+            `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${lookaheadBrtYmd}`,
             5500
           ).then((batch) => ({ slug, json: batch }))
         );
@@ -1249,7 +1280,7 @@ export async function buildMultipleTipViaEspn(
         ? Math.max(2, Math.ceil(targetCount / 3))
         : Math.max(5, targetCount + 2);
       if (found.length < minDesired) {
-        const nextDates = extractCalendarDates(json, todayIso, isWorldMix ? 3 : 3);
+        const nextDates = extractCalendarDates(json, todayIso, 3);
         for (const dateStr of nextDates) {
           const ymd = dateStr.slice(0, 10).replace(/-/g, '');
           extraDateFetches.push(
@@ -1654,6 +1685,8 @@ export async function buildMultipleTipViaEspn(
       leagueSlug: match.leagueSlug,
       marketType: bestOpt.marketType,
       leg: {
+        eventId: match.eventId,
+        leagueSlug: match.leagueSlug,
         homeTeam: match.homeName,
         awayTeam: match.awayName,
         homeShortCode: match.homeAbbr,
@@ -1722,7 +1755,8 @@ export async function buildMultipleTipViaEspn(
   return {
     leagueSlug: leagueKey,
     requestedCount: targetCount,
-    onlyToday: effectiveTodayOnly,
+    onlyToday: effectiveDayFilter === 'today',
+    dayFilter: effectiveDayFilter,
     competition: compLabel,
     updatedAt: new Date().toISOString(),
     legs: selected,
@@ -1736,4 +1770,164 @@ export async function buildMultipleTipViaEspn(
 
 export async function buildSerieAMultipleViaEspn(): Promise<SerieAMultipleTip | null> {
   return buildMultipleTipViaEspn('bra.1', 3);
+}
+
+function normalizeTeamText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+export function evaluateMultipleMarketOutcome(
+  marketLabel: string,
+  homeTeam: string,
+  awayTeam: string,
+  homeGoals: number,
+  awayGoals: number
+): MultipleLegStatus {
+  const m = normalizeTeamText(marketLabel);
+  const h = normalizeTeamText(homeTeam);
+  const a = normalizeTeamText(awayTeam);
+  const total = homeGoals + awayGoals;
+
+  if (m.includes('mais de 1,5') || m.includes('mais de 1.5')) {
+    return total >= 2 ? 'won' : 'lost';
+  }
+  if (m.includes('mais de 2,5') || m.includes('mais de 2.5')) {
+    return total >= 3 ? 'won' : 'lost';
+  }
+  if (m.includes('ambas marcam')) {
+    return homeGoals >= 1 && awayGoals >= 1 ? 'won' : 'lost';
+  }
+  if (m.includes('dupla chance')) {
+    if (h && m.includes(h)) {
+      return homeGoals >= awayGoals ? 'won' : 'lost';
+    }
+    if (a && m.includes(a)) {
+      return awayGoals >= homeGoals ? 'won' : 'lost';
+    }
+  }
+  if (m.startsWith('vitoria')) {
+    if (h && m.includes(h)) {
+      return homeGoals > awayGoals ? 'won' : 'lost';
+    }
+    if (a && m.includes(a)) {
+      return awayGoals > homeGoals ? 'won' : 'lost';
+    }
+  }
+  return 'pending';
+}
+
+export interface MultipleLegCheckInput {
+  eventId?: string;
+  leagueSlug?: string;
+  homeTeam: string;
+  awayTeam: string;
+  marketLabel: string;
+}
+
+export interface MultipleLegCheckResult {
+  eventId: string;
+  leagueSlug: string;
+  completed: boolean;
+  status: MultipleLegStatus;
+  actualScore?: {
+    homeGoals: number;
+    awayGoals: number;
+    statusDetail?: string;
+  };
+}
+
+export async function checkMultipleLegsResultsViaEspn(
+  legs: MultipleLegCheckInput[]
+): Promise<MultipleLegCheckResult[]> {
+  const uniquePairs = Array.from(
+    new Map(
+      legs
+        .filter((l) => l.eventId && l.leagueSlug)
+        .map((l) => [`${l.leagueSlug}:${l.eventId}`, l])
+    ).values()
+  ).slice(0, 25);
+
+  const summaryByKey = new Map<string, any>();
+
+  await Promise.all(
+    uniquePairs.map(async (item) => {
+      const slug = String(item.leagueSlug);
+      const eventId = String(item.eventId);
+      const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${encodeURIComponent(
+        slug
+      )}/summary?event=${encodeURIComponent(eventId)}`;
+      const json = await fetchJson<any>(url, 7000);
+      if (json) {
+        summaryByKey.set(`${slug}:${eventId}`, json);
+      }
+    })
+  );
+
+  return legs.map((leg) => {
+    const eventId = String(leg.eventId || '');
+    const leagueSlug = String(leg.leagueSlug || '');
+    if (!eventId || !leagueSlug) {
+      return {
+        eventId,
+        leagueSlug,
+        completed: false,
+        status: 'pending' as MultipleLegStatus,
+      };
+    }
+
+    const summary = summaryByKey.get(`${leagueSlug}:${eventId}`);
+    const comp = summary?.header?.competitions?.[0];
+    const statusType = comp?.status?.type;
+    const completed = Boolean(
+      statusType?.completed || statusType?.state === 'post'
+    );
+
+    if (!comp || !completed) {
+      return {
+        eventId,
+        leagueSlug,
+        completed: false,
+        status: 'pending' as MultipleLegStatus,
+      };
+    }
+
+    const competitors: any[] = comp?.competitors || [];
+    const home = competitors.find((c) => c.homeAway === 'home');
+    const away = competitors.find((c) => c.homeAway === 'away');
+    const homeGoals = Number(home?.score);
+    const awayGoals = Number(away?.score);
+
+    if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) {
+      return {
+        eventId,
+        leagueSlug,
+        completed: false,
+        status: 'pending' as MultipleLegStatus,
+      };
+    }
+
+    const status = evaluateMultipleMarketOutcome(
+      leg.marketLabel,
+      leg.homeTeam,
+      leg.awayTeam,
+      homeGoals,
+      awayGoals
+    );
+
+    return {
+      eventId,
+      leagueSlug,
+      completed: true,
+      status,
+      actualScore: {
+        homeGoals,
+        awayGoals,
+        statusDetail: statusType?.shortDetail || 'Finalizado',
+      },
+    };
+  });
 }

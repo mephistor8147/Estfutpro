@@ -2,9 +2,10 @@ import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import type { ChampionshipScope } from './src/types/football.js';
+import type { ChampionshipScope, MultipleDayFilter } from './src/types/football.js';
 import {
   analyzeMatchService,
+  checkMultipleResultsService,
   getFixturesService,
   getSerieAMultipleService,
   resolveApiError,
@@ -92,16 +93,36 @@ async function startServer() {
             ? req.query.league
             : 'today';
       const countRaw = req.body?.count ?? req.query?.count ?? 3;
+      const rawDayFilter =
+        typeof req.body?.dayFilter === 'string'
+          ? req.body.dayFilter
+          : typeof req.query?.dayFilter === 'string'
+            ? req.query.dayFilter
+            : undefined;
       const onlyToday =
         Boolean(req.body?.onlyToday) || req.query?.onlyToday === '1';
+      const dayFilter: MultipleDayFilter =
+        rawDayFilter === 'today' || rawDayFilter === 'tomorrow' || rawDayFilter === 'all'
+          ? rawDayFilter
+          : onlyToday
+            ? 'today'
+            : 'all';
+
       const tip = await getSerieAMultipleService(
         forceRefresh,
         league,
         Number(countRaw),
-        onlyToday
+        dayFilter
       );
       res.json(tip);
     } catch (error: any) {
+      if (error?.message === 'NO_TOMORROW_MULTIPLE_MATCHES') {
+        res.status(404).json({
+          error:
+            'Nenhum jogo encontrado para amanhã nesta competição no calendário oficial. Experimente "Jogos de Amanhã (Mundial)" ou desative o filtro de dia.',
+        });
+        return;
+      }
       if (error?.message === 'NO_TODAY_MULTIPLE_MATCHES') {
         res.status(404).json({
           error:
@@ -124,6 +145,21 @@ async function startServer() {
         'Não foi possível calcular a múltipla desta competição agora.'
       );
       console.error('Error building multiple tip:', error?.message || error);
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.post('/api/multiple-results', async (req, res) => {
+    try {
+      const legs = Array.isArray(req.body?.legs) ? req.body.legs : [];
+      const results = await checkMultipleResultsService(legs);
+      res.json({ results, checkedAt: new Date().toISOString() });
+    } catch (error: any) {
+      const { status, message } = resolveApiError(
+        error,
+        'Não foi possível verificar os placares das múltiplas na ESPN.'
+      );
+      console.error('Error checking multiple results:', error?.message || error);
       res.status(status).json({ error: message });
     }
   });

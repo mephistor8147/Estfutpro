@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
+  Bookmark,
+  BookmarkCheck,
   Calendar,
+  CalendarPlus,
   Check,
   Copy,
   Download,
   Flame,
   Globe,
+  History,
   Image as ImageIcon,
   Loader2,
   RefreshCw,
@@ -20,20 +24,41 @@ import {
   formatBrlCurrency,
   generateMultipleTipPng,
 } from '../lib/shareMultipleImage.ts';
-import type { SerieAMultipleLeg, SerieAMultipleTip } from '../types/football';
+import type {
+  MultipleDayFilter,
+  SerieAMultipleLeg,
+  SerieAMultipleTip,
+} from '../types/football';
+
+export interface SaveMultiplePayload {
+  tip: SerieAMultipleTip;
+  legOdds: number[];
+  totalOdd: number;
+  stake: number;
+  potentialReturn: number;
+}
 
 interface SerieAMultipleCardProps {
   tip: SerieAMultipleTip | null;
   selectedLeague: string;
   selectedCount: 3 | 4 | 5 | 10;
-  onlyToday: boolean;
+  dayFilter: MultipleDayFilter;
   isLoading: boolean;
   error: string | null;
+  isSavedInHistory: boolean;
+  multipleHistorySummary: {
+    total: number;
+    won: number;
+    lost: number;
+    pending: number;
+  };
   onChangeLeague: (leagueSlug: string) => void;
   onChangeCount: (count: 3 | 4 | 5 | 10) => void;
-  onToggleOnlyToday: (next: boolean) => void;
+  onChangeDayFilter: (next: MultipleDayFilter) => void;
   onRefresh: () => void;
   onSelectLeg: (leg: SerieAMultipleLeg) => void;
+  onSaveToHistory: (payload: SaveMultiplePayload) => void;
+  onOpenMultipleHistory: () => void;
 }
 
 function parseLocaleDecimal(raw: string): number {
@@ -51,14 +76,18 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
   tip,
   selectedLeague,
   selectedCount,
-  onlyToday,
+  dayFilter,
   isLoading,
   error,
+  isSavedInHistory,
+  multipleHistorySummary,
   onChangeLeague,
   onChangeCount,
-  onToggleOnlyToday,
+  onChangeDayFilter,
   onRefresh,
   onSelectLeg,
+  onSaveToHistory,
+  onOpenMultipleHistory,
 }) => {
   const activeCompOption = useMemo(
     () =>
@@ -79,6 +108,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
     }),
     []
   );
+
   const [legOddInputs, setLegOddInputs] = useState<string[]>([]);
   const [customTotalOddInput, setCustomTotalOddInput] = useState<string | null>(null);
   const [stakeInput, setStakeInput] = useState<string>('50');
@@ -256,6 +286,17 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
     }
   };
 
+  const handleSaveTip = () => {
+    if (!currentPayload || isSavedInHistory) return;
+    onSaveToHistory({
+      tip: currentPayload.tip,
+      legOdds: currentPayload.legOdds,
+      totalOdd: currentPayload.totalOdd,
+      stake: currentPayload.stake,
+      potentialReturn: currentPayload.potentialReturn,
+    });
+  };
+
   const updatedTime = tip?.updatedAt
     ? new Intl.DateTimeFormat('pt-BR', {
         hour: '2-digit',
@@ -263,13 +304,27 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
       }).format(new Date(tip.updatedAt))
     : null;
 
-  const effectiveOnlyToday = onlyToday || selectedLeague === 'today';
+  const effectiveDayFilter: MultipleDayFilter =
+    selectedLeague === 'today'
+      ? 'today'
+      : selectedLeague === 'tomorrow'
+        ? 'tomorrow'
+        : dayFilter;
+
+  const tipDayFilter: MultipleDayFilter = tip
+    ? tip.dayFilter ?? (tip.onlyToday ? 'today' : 'all')
+    : 'all';
 
   const isTipMismatched =
     !tip ||
     tip.leagueSlug !== selectedLeague ||
     (tip.requestedCount ?? tip.legs.length) !== selectedCount ||
-    Boolean(tip.onlyToday) !== effectiveOnlyToday;
+    tipDayFilter !== effectiveDayFilter;
+
+  const isMultiLeagueTip =
+    tip?.leagueSlug === 'world' ||
+    tip?.leagueSlug === 'today' ||
+    tip?.leagueSlug === 'tomorrow';
 
   const gridColsClass =
     selectedCount === 10
@@ -288,11 +343,33 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
       {/* Header */}
       <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3 mb-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <Flame className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-            <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight text-balance">
-              Dicas quentes
-            </h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Flame className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight text-balance">
+                Dicas quentes
+              </h2>
+            </div>
+
+            {multipleHistorySummary.total > 0 && (
+              <button
+                type="button"
+                onClick={onOpenMultipleHistory}
+                className="min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-1.5 transition-colors tabular-nums"
+              >
+                <History className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                <span>
+                  <span className="text-emerald-700 dark:text-emerald-400">
+                    {multipleHistorySummary.won}
+                  </span>{' '}
+                  {multipleHistorySummary.won === 1 ? 'acerto' : 'acertos'} ·{' '}
+                  <span className="text-rose-700 dark:text-rose-400">
+                    {multipleHistorySummary.lost}
+                  </span>{' '}
+                  {multipleHistorySummary.lost === 1 ? 'perda' : 'perdas'}
+                </span>
+              </button>
+            )}
           </div>
 
           {!isTipMismatched && tip ? (
@@ -315,107 +392,129 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto xl:justify-end">
-          <div
-            role="group"
-            aria-label="Quantidade de times na múltipla"
-            className="w-full sm:w-auto grid grid-cols-4 sm:inline-flex items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-1 min-h-[44px]"
-          >
-            {([3, 4, 5, 10] as const).map((cnt) => {
-              const active = selectedCount === cnt;
-              return (
-                <button
-                  key={cnt}
-                  type="button"
-                  onClick={() => onChangeCount(cnt)}
-                  disabled={isLoading}
-                  aria-pressed={active}
-                  className={`min-h-[36px] px-1.5 sm:px-2.5 rounded-lg text-[11px] sm:text-xs font-semibold tabular-nums whitespace-nowrap transition-colors disabled:opacity-60 ${
-                    active
-                      ? 'bg-emerald-700 dark:bg-emerald-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  {cnt} times
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="relative w-full sm:w-auto sm:flex-1 sm:min-w-[210px] xl:flex-initial">
-            <Globe className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" />
-            <select
-              aria-label="Selecionar competição para dicas quentes"
-              value={selectedLeague}
-              onChange={(e) => onChangeLeague(e.target.value)}
-              disabled={isLoading}
-              className="w-full min-h-[44px] pl-8 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-600/30 focus:border-emerald-700 dark:focus:border-emerald-500 transition-colors disabled:opacity-60"
+        <div className="flex flex-col gap-2 w-full xl:w-auto xl:items-end">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap xl:flex-nowrap items-stretch sm:items-center gap-2 w-full xl:w-auto">
+            <div
+              role="group"
+              aria-label="Quantidade de times na múltipla"
+              className="w-full sm:w-auto grid grid-cols-4 sm:inline-flex items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-1 min-h-[44px] shrink-0"
             >
-              <optgroup label="Destaques">
-                {groupedCompetitions.destaques.map((comp) => (
-                  <option key={comp.slug} value={comp.slug}>
-                    {comp.label}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Brasil · Nacionais e Regionais">
-                {groupedCompetitions.brasil_regional.map((comp) => (
-                  <option key={comp.slug} value={comp.slug}>
-                    {comp.label}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Europa & Seleções">
-                {groupedCompetitions.europa.map((comp) => (
-                  <option key={comp.slug} value={comp.slug}>
-                    {comp.label}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Américas & Mundo">
-                {groupedCompetitions.americas.map((comp) => (
-                  <option key={comp.slug} value={comp.slug}>
-                    {comp.label}
-                  </option>
-                ))}
-                {groupedCompetitions.mundo.map((comp) => (
-                  <option key={comp.slug} value={comp.slug}>
-                    {comp.label}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
+              {([3, 4, 5, 10] as const).map((cnt) => {
+                const active = selectedCount === cnt;
+                return (
+                  <button
+                    key={cnt}
+                    type="button"
+                    onClick={() => onChangeCount(cnt)}
+                    disabled={isLoading}
+                    aria-pressed={active}
+                    className={`min-h-[36px] px-1.5 sm:px-2.5 rounded-lg text-[11px] sm:text-xs font-semibold tabular-nums whitespace-nowrap transition-colors disabled:opacity-60 ${
+                      active
+                        ? 'bg-emerald-700 dark:bg-emerald-600 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {cnt} times
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="relative w-full sm:flex-1 sm:min-w-[200px] xl:w-[230px] xl:flex-initial">
+              <Globe className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" />
+              <select
+                aria-label="Selecionar competição para dicas quentes"
+                value={selectedLeague}
+                onChange={(e) => onChangeLeague(e.target.value)}
+                disabled={isLoading}
+                className="w-full min-h-[44px] pl-8 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-600/30 focus:border-emerald-700 dark:focus:border-emerald-500 transition-colors disabled:opacity-60"
+              >
+                <optgroup label="Destaques">
+                  {groupedCompetitions.destaques.map((comp) => (
+                    <option key={comp.slug} value={comp.slug}>
+                      {comp.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Brasil · Nacionais e Regionais">
+                  {groupedCompetitions.brasil_regional.map((comp) => (
+                    <option key={comp.slug} value={comp.slug}>
+                      {comp.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Europa & Seleções">
+                  {groupedCompetitions.europa.map((comp) => (
+                    <option key={comp.slug} value={comp.slug}>
+                      {comp.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Américas & Mundo">
+                  {groupedCompetitions.americas.map((comp) => (
+                    <option key={comp.slug} value={comp.slug}>
+                      {comp.label}
+                    </option>
+                  ))}
+                  {groupedCompetitions.mundo.map((comp) => (
+                    <option key={comp.slug} value={comp.slug}>
+                      {comp.label}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onToggleOnlyToday(!onlyToday)}
-            disabled={isLoading || selectedLeague === 'today'}
-            aria-pressed={effectiveOnlyToday}
-            title={
-              selectedLeague === 'today'
-                ? 'Modo Jogos de Hoje ativo'
-                : 'Filtrar apenas partidas programadas para o dia atual'
-            }
-            className={`flex-1 sm:flex-initial min-h-[44px] px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-75 ${
-              effectiveOnlyToday
-                ? 'border-emerald-700 dark:border-emerald-500 bg-emerald-700 dark:bg-emerald-600 text-white'
-                : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
-            }`}
-          >
-            <Calendar className="w-3.5 h-3.5 shrink-0" />
-            <span>Somente hoje</span>
-          </button>
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full xl:w-auto xl:justify-end">
+            <button
+              type="button"
+              onClick={() =>
+                onChangeDayFilter(effectiveDayFilter === 'today' ? 'all' : 'today')
+              }
+              disabled={isLoading}
+              aria-pressed={effectiveDayFilter === 'today'}
+              title="Filtrar apenas partidas programadas para hoje"
+              className={`min-h-[44px] px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-75 ${
+                effectiveDayFilter === 'today'
+                  ? 'border-emerald-700 dark:border-emerald-500 bg-emerald-700 dark:bg-emerald-600 text-white'
+                  : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5 shrink-0" />
+              <span>Somente hoje</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={isLoading}
-            className="flex-1 sm:flex-initial min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
-            <span>Atualizar</span>
-          </button>
+            <button
+              type="button"
+              onClick={() =>
+                onChangeDayFilter(
+                  effectiveDayFilter === 'tomorrow' ? 'all' : 'tomorrow'
+                )
+              }
+              disabled={isLoading}
+              aria-pressed={effectiveDayFilter === 'tomorrow'}
+              title="Filtrar apenas partidas programadas para amanhã"
+              className={`min-h-[44px] px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-75 ${
+                effectiveDayFilter === 'tomorrow'
+                  ? 'border-emerald-700 dark:border-emerald-500 bg-emerald-700 dark:bg-emerald-600 text-white'
+                  : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
+              }`}
+            >
+              <CalendarPlus className="w-3.5 h-3.5 shrink-0" />
+              <span>Dicas de amanhã</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="col-span-2 sm:col-span-1 min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>Atualizar</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -435,39 +534,53 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
           ))}
         </div>
       ) : error && isTipMismatched ? (
-        <div className="rounded-xl border border-amber-200 dark:border-amber-800/70 bg-amber-50/70 dark:bg-amber-950/30 p-3.5 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs sm:text-sm text-amber-900 dark:text-amber-200">{error}</p>
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {selectedLeague !== 'today' ? (
+        <div className="rounded-xl border border-amber-200 dark:border-amber-800/70 bg-amber-50/70 dark:bg-amber-950/30 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <p className="text-xs sm:text-sm text-amber-900 dark:text-amber-200 min-w-0">
+            {error}
+          </p>
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            {selectedLeague !== 'tomorrow' && effectiveDayFilter !== 'tomorrow' && (
+              <button
+                type="button"
+                onClick={() => onChangeDayFilter('tomorrow')}
+                className="flex-1 sm:flex-initial min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold text-center whitespace-nowrap"
+              >
+                Dicas de Amanhã
+              </button>
+            )}
+            {selectedLeague !== 'today' && (
               <button
                 type="button"
                 onClick={() => onChangeLeague('today')}
-                className="min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold"
+                className="flex-1 sm:flex-initial min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold text-center whitespace-nowrap"
               >
-                Ver Jogos de Hoje (Mundial)
+                Jogos de Hoje (Mundial)
               </button>
-            ) : (
+            )}
+            {(selectedLeague === 'today' || selectedLeague === 'tomorrow') && (
               <button
                 type="button"
                 onClick={() => onChangeLeague('world')}
-                className="min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold"
+                className="flex-1 sm:flex-initial min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold text-center whitespace-nowrap"
               >
-                Ver Principais do Mundo
+                Principais do Mundo
               </button>
             )}
-            {onlyToday && selectedLeague !== 'today' && (
-              <button
-                type="button"
-                onClick={() => onToggleOnlyToday(false)}
-                className="min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 hover:bg-amber-100/60 dark:hover:bg-amber-950/60 text-amber-900 dark:text-amber-100 text-xs font-semibold"
-              >
-                Desativar Somente hoje
-              </button>
-            )}
+            {effectiveDayFilter !== 'all' &&
+              selectedLeague !== 'today' &&
+              selectedLeague !== 'tomorrow' && (
+                <button
+                  type="button"
+                  onClick={() => onChangeDayFilter('all')}
+                  className="flex-1 sm:flex-initial min-h-[44px] px-3.5 py-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 hover:bg-amber-100/60 dark:hover:bg-amber-950/60 text-amber-900 dark:text-amber-100 text-xs font-semibold text-center whitespace-nowrap"
+                >
+                  Mostrar próximos jogos
+                </button>
+              )}
             <button
               type="button"
               onClick={onRefresh}
-              className="min-h-[44px] px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold"
+              className="flex-1 sm:flex-initial min-h-[44px] px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold text-center whitespace-nowrap"
             >
               Tentar novamente
             </button>
@@ -486,11 +599,8 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                   <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                     <span className="font-medium truncate">
                       Jogo {idx + 1}
-                      {(tip.leagueSlug === 'world' || tip.leagueSlug === 'today') &&
-                      leg.competition
-                        ? ` · ${leg.competition}`
-                        : ''}{' '}
-                      · {leg.dateLabel}
+                      {isMultiLeagueTip && leg.competition ? ` · ${leg.competition}` : ''} ·{' '}
+                      {leg.dateLabel}
                     </span>
                     <span className="font-mono tabular-nums shrink-0">
                       xG {leg.expectedGoalsHome.toFixed(1)}–{leg.expectedGoalsAway.toFixed(1)}
@@ -541,9 +651,9 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
             ))}
           </div>
 
-          {/* Odd Calculator + Potential Return + WhatsApp Share Bar */}
+          {/* Odd Calculator + Potential Return + Save + WhatsApp Share Bar */}
           <div className="mt-3.5 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-950/70 p-3.5 sm:p-4 space-y-3">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+            <div className="grid grid-cols-1 min-[400px]:grid-cols-2 lg:grid-cols-3 gap-3 items-end">
               {/* Total Odd Field */}
               <div>
                 <div className="flex flex-wrap items-center justify-between gap-1 mb-1">
@@ -599,7 +709,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
               </div>
 
               {/* Potential Return Display */}
-              <div className="col-span-2 sm:col-span-1 min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/70 flex flex-col justify-center">
+              <div className="min-[400px]:col-span-2 lg:col-span-1 min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/70 flex flex-col justify-center">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
                   Ganho potencial
                 </span>
@@ -612,35 +722,63 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                   </span>
                 </div>
               </div>
+            </div>
 
-              {/* Share & Image Actions */}
-              <div className="col-span-2 sm:col-span-1 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleShareWhatsapp}
-                  disabled={isGeneratingImage}
-                  className="flex-1 min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-60"
-                >
-                  {isGeneratingImage ? (
-                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                  ) : (
-                    <Share2 className="w-4 h-4 shrink-0" />
-                  )}
-                  <span className="whitespace-nowrap">WhatsApp</span>
-                </button>
+            {/* Save + WhatsApp + Image Actions Row — Always Visible on Every Screen */}
+            <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={handleSaveTip}
+                disabled={isSavedInHistory}
+                title={
+                  isSavedInHistory
+                    ? 'Dica salva no histórico de acertos e perdas'
+                    : 'Salvar dica para acompanhar acertos e perdas'
+                }
+                className={`min-h-[44px] px-3.5 py-2 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
+                  isSavedInHistory
+                    ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200'
+                    : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                {isSavedInHistory ? (
+                  <>
+                    <BookmarkCheck className="w-4 h-4 shrink-0" />
+                    <span>Salva no histórico</span>
+                  </>
+                ) : (
+                  <>
+                    <Bookmark className="w-4 h-4 shrink-0" />
+                    <span>Salvar dica</span>
+                  </>
+                )}
+              </button>
 
-                <button
-                  type="button"
-                  onClick={handleGenerateImageOnly}
-                  disabled={isGeneratingImage}
-                  title="Gerar e baixar imagem PNG da múltipla"
-                  aria-label="Gerar e baixar imagem PNG da múltipla"
-                  className="min-h-[44px] min-w-[44px] px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-60"
-                >
-                  <ImageIcon className="w-4 h-4 shrink-0" />
-                  <span className="hidden xl:inline">Imagem</span>
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleShareWhatsapp}
+                disabled={isGeneratingImage}
+                className="min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
+              >
+                {isGeneratingImage ? (
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                ) : (
+                  <Share2 className="w-4 h-4 shrink-0" />
+                )}
+                <span>Enviar no WhatsApp</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleGenerateImageOnly}
+                disabled={isGeneratingImage}
+                title="Gerar e baixar imagem PNG da múltipla"
+                aria-label="Gerar e baixar imagem PNG da múltipla"
+                className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
+              >
+                <ImageIcon className="w-4 h-4 shrink-0" />
+                <span>Baixar imagem</span>
+              </button>
             </div>
 
             {/* Inline Share Feedback + Generated Image Preview / WhatsApp Link Fallback */}
@@ -723,14 +861,24 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
             <span>
               As odds vêm preenchidas com a odd justa do modelo Poisson (1 / probabilidade) e podem ser editadas conforme sua casa de apostas.
             </span>
-            <a
-              href={tip.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="font-medium text-emerald-700 dark:text-emerald-400 hover:underline shrink-0"
-            >
-              Fonte: ESPN · {tip.competition}
-            </a>
+            <div className="flex flex-wrap items-center gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={onOpenMultipleHistory}
+                className="min-h-[36px] font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-700 dark:hover:text-emerald-400 inline-flex items-center gap-1"
+              >
+                <History className="w-3.5 h-3.5" />
+                <span>Ver histórico de acertos e perdas</span>
+              </button>
+              <a
+                href={tip.sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-emerald-700 dark:text-emerald-400 hover:underline shrink-0"
+              >
+                Fonte: ESPN · {tip.competition}
+              </a>
+            </div>
           </div>
         </>
       ) : null}

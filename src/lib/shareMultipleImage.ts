@@ -20,7 +20,10 @@ export function formatBrlCurrency(value: number): string {
 
 export function buildWhatsappSummaryText(payload: MultipleImagePayload): string {
   const { tip, legOdds, totalOdd, stake, potentialReturn, potentialProfit } = payload;
-  const isMultiLeague = tip.leagueSlug === 'world' || tip.leagueSlug === 'today';
+  const isMultiLeague =
+    tip.leagueSlug === 'world' ||
+    tip.leagueSlug === 'today' ||
+    tip.leagueSlug === 'tomorrow';
   const lines = [
     `*Dica Quente · ${tip.competition}* (CampoStats)`,
     ``,
@@ -185,7 +188,10 @@ export async function generateMultipleTipPng(
   ctx.stroke();
 
   cursorY += 28;
-  const isMultiLeague = tip.leagueSlug === 'world' || tip.leagueSlug === 'today';
+  const isMultiLeague =
+    tip.leagueSlug === 'world' ||
+    tip.leagueSlug === 'today' ||
+    tip.leagueSlug === 'tomorrow';
 
   // Leg Cards
   tip.legs.forEach((leg, idx) => {

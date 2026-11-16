@@ -65,9 +65,9 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Sub-navigation bar */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-1.5 overflow-x-auto no-scrollbar">
-        <div className="flex md:grid md:grid-cols-3 xl:grid-cols-6 items-center gap-1 min-w-max md:min-w-0">
+      {/* Sub-navigation bar — always shows all 6 module tabs without clipping */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-1.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 items-stretch gap-1.5">
           {tabs.map((tab) => {
             const active = activeSubTab === tab.id;
             return (
@@ -75,7 +75,7 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveSubTab(tab.id)}
-                className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap shrink-0 flex items-center justify-center ${
+                className={`min-h-[44px] px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap flex items-center justify-center ${
                   active
                     ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -235,8 +235,8 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
             </section>
 
             <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5">
-              <div className="flex items-center justify-between gap-2 mb-3">
-                <div>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div className="min-w-0">
                   <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
                     Simulador de impacto contextual
                   </h3>
@@ -248,7 +248,7 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
                   <button
                     type="button"
                     onClick={onResetContextDelta}
-                    className="min-h-[44px] px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700"
+                    className="min-h-[44px] px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 shrink-0 whitespace-nowrap"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Restaurar</span>

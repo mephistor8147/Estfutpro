@@ -189,13 +189,13 @@ export const ProbabilityHero: React.FC<ProbabilityHeroProps> = ({
           </div>
         </div>
 
-        {/* Mobile-friendly action strip */}
-        <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        {/* Responsive action strip */}
+        <div className="mt-5 flex flex-wrap gap-2.5">
           <button
             type="button"
             onClick={onSaveToHistory}
             disabled={isSaved}
-            className={`min-h-[44px] px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 transition-colors whitespace-nowrap ${
+            className={`flex-1 basis-[155px] min-h-[44px] px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 transition-colors whitespace-nowrap ${
               isSaved
                 ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800 cursor-default'
                 : 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-white active:scale-[0.99]'
@@ -209,7 +209,7 @@ export const ProbabilityHero: React.FC<ProbabilityHeroProps> = ({
             type="button"
             onClick={onRefresh}
             disabled={isRefreshing}
-            className="min-h-[44px] px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/80 active:scale-[0.99] flex items-center justify-center gap-2 transition-colors whitespace-nowrap disabled:opacity-60"
+            className="flex-1 basis-[155px] min-h-[44px] px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/80 active:scale-[0.99] flex items-center justify-center gap-2 transition-colors whitespace-nowrap disabled:opacity-60"
           >
             <RefreshCw className={`w-4 h-4 shrink-0 ${isRefreshing ? 'animate-spin' : ''}`} />
             <span>{isRefreshing ? 'Atualizando...' : 'Atualizar dados'}</span>
@@ -218,7 +218,7 @@ export const ProbabilityHero: React.FC<ProbabilityHeroProps> = ({
           <button
             type="button"
             onClick={onOpenModules}
-            className="min-h-[44px] px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white active:scale-[0.99] flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
+            className="flex-1 basis-[155px] min-h-[44px] px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white active:scale-[0.99] flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
           >
             <span>Ver 5 módulos</span>
             <ArrowRight className="w-4 h-4 shrink-0" />

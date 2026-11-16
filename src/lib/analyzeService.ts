@@ -4,13 +4,17 @@ import type {
   ChampionshipScope,
   GroundingSource,
   MatchAnalysisData,
+  MultipleDayFilter,
   SerieAMultipleTip,
   SuggestedFixture,
 } from '../types/football.js';
 import {
   analyzeMatchViaEspn,
   buildMultipleTipViaEspn,
+  checkMultipleLegsResultsViaEspn,
   fetchEspnLiveFixtures,
+  type MultipleLegCheckInput,
+  type MultipleLegCheckResult,
 } from './espnProvider.js';
 import { MULTIPLE_COMPETITION_SET } from './competitions.js';
 
@@ -689,25 +693,43 @@ export async function getSerieAMultipleService(
   forceRefresh = false,
   leagueInput = 'today',
   countInput = 3,
-  onlyToday = false
+  dayFilterInput: MultipleDayFilter | boolean = 'all'
 ): Promise<SerieAMultipleTip> {
   const normalized = String(leagueInput || 'today').trim().toLowerCase();
   const leagueKey = MULTIPLE_COMPETITION_SET.has(normalized) ? normalized : 'today';
   const parsedCount = Number(countInput);
   const legCount =
     parsedCount === 4 || parsedCount === 5 || parsedCount === 10 ? parsedCount : 3;
-  const todayFlag = Boolean(onlyToday) || leagueKey === 'today';
-  const cacheKey = `${leagueKey}::${legCount}::${todayFlag ? 'today' : 'next'}`;
+
+  const effectiveDayFilter: MultipleDayFilter =
+    leagueKey === 'today'
+      ? 'today'
+      : leagueKey === 'tomorrow'
+        ? 'tomorrow'
+        : typeof dayFilterInput === 'boolean'
+          ? dayFilterInput
+            ? 'today'
+            : 'all'
+          : dayFilterInput === 'today' || dayFilterInput === 'tomorrow'
+            ? dayFilterInput
+            : 'all';
+
+  const cacheKey = `${leagueKey}::${legCount}::${effectiveDayFilter}`;
 
   const cached = multipleCache.get(cacheKey);
   if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
     return cached.tip;
   }
 
-  const tip = await buildMultipleTipViaEspn(leagueKey, legCount, todayFlag);
+  const tip = await buildMultipleTipViaEspn(leagueKey, legCount, effectiveDayFilter);
   if (!tip || tip.legs.length === 0) {
+    if (effectiveDayFilter === 'tomorrow') {
+      throw new Error('NO_TOMORROW_MULTIPLE_MATCHES');
+    }
     throw new Error(
-      todayFlag ? 'NO_TODAY_MULTIPLE_MATCHES' : 'NO_UPCOMING_MULTIPLE_MATCHES'
+      effectiveDayFilter === 'today'
+        ? 'NO_TODAY_MULTIPLE_MATCHES'
+        : 'NO_UPCOMING_MULTIPLE_MATCHES'
     );
   }
 
@@ -717,4 +739,13 @@ export async function getSerieAMultipleService(
   });
 
   return tip;
+}
+
+export async function checkMultipleResultsService(
+  legs: MultipleLegCheckInput[]
+): Promise<MultipleLegCheckResult[]> {
+  if (!Array.isArray(legs) || legs.length === 0) {
+    return [];
+  }
+  return checkMultipleLegsResultsViaEspn(legs);
 }
