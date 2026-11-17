@@ -11,9 +11,11 @@ import {
   XCircle,
 } from 'lucide-react';
 import { formatBrlCurrency } from '../lib/shareMultipleImage.ts';
+import { CompetitionFlag } from './CompetitionFlag.tsx';
 import { TeamCrest } from './TeamCrest.tsx';
 import type {
   MultipleHistoryItem,
+  MultipleHistoryLeg,
   MultipleLegStatus,
   MultipleTipStatus,
   PredictionHistoryItem,
@@ -25,6 +27,7 @@ interface HistoryViewProps {
   initialSection?: 'multiple' | 'analysis';
   isCheckingMultipleResults: boolean;
   multipleCheckMessage: string | null;
+  liveScoresUpdatedAt: string | null;
   onRecordScore: (id: string, homeGoals: number, awayGoals: number) => void;
   onDeleteItem: (id: string) => void;
   onLoadSnapshot: (item: PredictionHistoryItem) => void;
@@ -60,12 +63,74 @@ function getActualOutcome(homeGoals: number, awayGoals: number): 'H' | 'D' | 'A'
   return 'D';
 }
 
+function normalizeTextSimple(str: string): string {
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function getLiveLegPartialSignal(
+  leg: MultipleHistoryLeg
+): { label: string; positive: boolean } | null {
+  if (leg.liveScore?.state !== 'in') return null;
+  const hGoals = leg.liveScore.homeGoals;
+  const aGoals = leg.liveScore.awayGoals;
+  const total = hGoals + aGoals;
+  const m = normalizeTextSimple(leg.marketLabel);
+  const h = normalizeTextSimple(leg.homeTeam);
+  const a = normalizeTextSimple(leg.awayTeam);
+
+  if (m.includes('mais de 1,5') || m.includes('mais de 1.5')) {
+    return total >= 2
+      ? { label: 'Parcial: batendo', positive: true }
+      : { label: 'Parcial: em aberto', positive: false };
+  }
+  if (m.includes('mais de 2,5') || m.includes('mais de 2.5')) {
+    return total >= 3
+      ? { label: 'Parcial: batendo', positive: true }
+      : { label: 'Parcial: em aberto', positive: false };
+  }
+  if (m.includes('ambas marcam')) {
+    return hGoals >= 1 && aGoals >= 1
+      ? { label: 'Parcial: batendo', positive: true }
+      : { label: 'Parcial: em aberto', positive: false };
+  }
+  if (m.includes('dupla chance')) {
+    if (h && m.includes(h)) {
+      return hGoals >= aGoals
+        ? { label: 'Parcial: dentro', positive: true }
+        : { label: 'Parcial: atrás', positive: false };
+    }
+    if (a && m.includes(a)) {
+      return aGoals >= hGoals
+        ? { label: 'Parcial: dentro', positive: true }
+        : { label: 'Parcial: atrás', positive: false };
+    }
+  }
+  if (m.startsWith('vitoria')) {
+    if (h && m.includes(h)) {
+      return hGoals > aGoals
+        ? { label: 'Parcial: à frente', positive: true }
+        : { label: 'Parcial: atrás', positive: false };
+    }
+    if (a && m.includes(a)) {
+      return aGoals > hGoals
+        ? { label: 'Parcial: à frente', positive: true }
+        : { label: 'Parcial: atrás', positive: false };
+    }
+  }
+  return null;
+}
+
 export const HistoryView: React.FC<HistoryViewProps> = ({
   history,
   multipleHistory,
   initialSection = 'multiple',
   isCheckingMultipleResults,
   multipleCheckMessage,
+  liveScoresUpdatedAt,
   onRecordScore,
   onDeleteItem,
   onLoadSnapshot,
@@ -146,10 +211,29 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         ).toFixed(2)
       : null;
 
+  const liveMultipleGamesCount = multipleHistory.reduce(
+    (sum, item) =>
+      sum + item.legs.filter((leg) => leg.liveScore?.state === 'in').length,
+    0
+  );
+  const liveAnalysisGamesCount = history.filter(
+    (item) => item.liveScore?.state === 'in'
+  ).length;
+  const formattedLiveSync = liveScoresUpdatedAt
+    ? new Intl.DateTimeFormat('pt-BR', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date(liveScoresUpdatedAt))
+    : null;
+
   const startEdit = (item: PredictionHistoryItem) => {
     setEditingId(item.id);
-    setHomeInput(String(item.actualScore?.homeGoals ?? 1));
-    setAwayInput(String(item.actualScore?.awayGoals ?? 0));
+    setHomeInput(
+      String(item.actualScore?.homeGoals ?? item.liveScore?.homeGoals ?? 1)
+    );
+    setAwayInput(
+      String(item.actualScore?.awayGoals ?? item.liveScore?.awayGoals ?? 0)
+    );
   };
 
   const submitScore = (id: string) => {
@@ -202,14 +286,38 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         <>
           {/* Dicas Quentes Hit/Loss KPI Summary */}
           <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-              <div>
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4">
+              <div className="min-w-0">
                 <h2 className="font-display text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100">
                   Histórico de acertos e perdas
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                  Salve suas múltiplas de Dicas quentes para acompanhar acertos, perdas e desempenho simulado.
+                  Acompanhe placares ao vivo da web, acertos, perdas e desempenho simulado das múltiplas.
                 </p>
+                {(liveMultipleGamesCount > 0 || formattedLiveSync) && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+                    {liveMultipleGamesCount > 0 && (
+                      <span className="inline-flex items-center gap-1.5 font-bold text-rose-600 dark:text-rose-400">
+                        <span
+                          className="w-1.5 h-1.5 rounded-full bg-rose-600 dark:bg-rose-400 animate-pulse shrink-0"
+                          aria-hidden="true"
+                        />
+                        <span>
+                          {liveMultipleGamesCount}{' '}
+                          {liveMultipleGamesCount === 1
+                            ? 'jogo ao vivo agora'
+                            : 'jogos ao vivo agora'}
+                        </span>
+                      </span>
+                    )}
+                    {liveMultipleGamesCount > 0 && formattedLiveSync && (
+                      <span aria-hidden="true">·</span>
+                    )}
+                    {formattedLiveSync && (
+                      <span>Placares atualizados às {formattedLiveSync}</span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {multipleHistory.length > 0 && (
@@ -217,14 +325,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   type="button"
                   onClick={onCheckMultipleResults}
                   disabled={isCheckingMultipleResults}
-                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
+                  className="w-full sm:w-auto min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
                 >
                   {isCheckingMultipleResults ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
                   ) : (
                     <RefreshCw className="w-3.5 h-3.5 shrink-0" />
                   )}
-                  <span>Verificar placares</span>
+                  <span>Atualizar placares</span>
                 </button>
               )}
             </div>
@@ -331,7 +439,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               </h3>
               <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
                 {multipleHistory.length === 0
-                  ? 'No card Dicas quentes do Analisador, toque em Salvar dica para registrar a múltipla e acompanhar acertos e perdas.'
+                  ? 'No menu Dicas quentes, toque em Salvar dica para registrar a múltipla e acompanhar acertos e perdas.'
                   : 'Selecione outro filtro acima para visualizar as demais múltiplas salvas.'}
               </p>
             </section>
@@ -360,8 +468,15 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     {/* Header Row */}
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
-                          {item.competition}
+                        <div className="flex items-center gap-2 min-w-0">
+                          <CompetitionFlag
+                            leagueSlug={item.leagueSlug}
+                            competition={item.competition}
+                            size="md"
+                          />
+                          <div className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                            {item.competition}
+                          </div>
                         </div>
                         <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
                           {item.legs.length} {item.legs.length === 1 ? 'jogo' : 'jogos'} · Prob.{' '}
@@ -445,34 +560,155 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     </div>
 
                     {/* Legs Breakdown */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {item.legs.map((leg, legIdx) => (
-                        <div
-                          key={`${item.id}-${legIdx}`}
-                          className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 p-2.5 flex flex-col justify-between gap-2"
-                        >
-                          <div className="min-w-0">
-                            <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-                              <span className="truncate">
-                                Jogo {legIdx + 1}
-                                {leg.competition ? ` · ${leg.competition}` : ''} ·{' '}
-                                {leg.dateLabel}
-                              </span>
-                              {leg.actualScore && (
-                                <span className="font-mono font-bold text-slate-900 dark:text-slate-100 shrink-0 tabular-nums">
-                                  Placar {leg.actualScore.homeGoals}×{leg.actualScore.awayGoals}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                      {item.legs.map((leg, legIdx) => {
+                        const isLive = leg.liveScore?.state === 'in';
+                        const isPost =
+                          leg.liveScore?.state === 'post' ||
+                          leg.actualScore !== undefined;
+                        const displayScore =
+                          isLive && leg.liveScore
+                            ? {
+                                homeGoals: leg.liveScore.homeGoals,
+                                awayGoals: leg.liveScore.awayGoals,
+                              }
+                            : leg.actualScore
+                              ? {
+                                  homeGoals: leg.actualScore.homeGoals,
+                                  awayGoals: leg.actualScore.awayGoals,
+                                }
+                              : leg.liveScore?.state === 'post'
+                                ? {
+                                    homeGoals: leg.liveScore.homeGoals,
+                                    awayGoals: leg.liveScore.awayGoals,
+                                  }
+                                : null;
+
+                        const liveSignal = getLiveLegPartialSignal(leg);
+                        const statusLabel = isLive
+                          ? leg.liveScore?.statusDetail || 'Em andamento'
+                          : isPost
+                            ? leg.liveScore?.statusDetail ||
+                              leg.actualScore?.statusDetail ||
+                              'Finalizado'
+                            : leg.liveScore?.statusDetail || leg.dateLabel;
+
+                        return (
+                          <div
+                            key={`${item.id}-${legIdx}`}
+                            className={`rounded-xl border p-3 flex flex-col justify-between gap-2.5 ${
+                              isLive
+                                ? 'border-rose-200 dark:border-rose-900/70 bg-rose-50/25 dark:bg-rose-950/15'
+                                : 'border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40'
+                            }`}
+                          >
+                            <div className="min-w-0 space-y-2">
+                              <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                <span className="inline-flex items-center gap-1.5 min-w-0 truncate">
+                                  <CompetitionFlag
+                                    leagueSlug={leg.leagueSlug || item.leagueSlug}
+                                    competition={leg.competition || item.competition}
+                                    size="sm"
+                                  />
+                                  <span className="truncate">
+                                    Jogo {legIdx + 1}
+                                    {leg.competition ? ` · ${leg.competition}` : ''}
+                                  </span>
                                 </span>
-                              )}
-                            </div>
 
-                            <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 mt-0.5 truncate">
-                              {leg.homeTeam} × {leg.awayTeam}
-                            </div>
+                                {isLive ? (
+                                  <span className="inline-flex items-center gap-1.5 font-bold text-rose-600 dark:text-rose-400 shrink-0 tabular-nums whitespace-nowrap">
+                                    <span
+                                      className="w-1.5 h-1.5 rounded-full bg-rose-600 dark:bg-rose-400 animate-pulse shrink-0"
+                                      aria-hidden="true"
+                                    />
+                                    <span>AO VIVO · {statusLabel}</span>
+                                  </span>
+                                ) : isPost ? (
+                                  <span className="font-semibold text-slate-600 dark:text-slate-300 shrink-0 whitespace-nowrap">
+                                    {statusLabel}
+                                  </span>
+                                ) : (
+                                  <span className="shrink-0 whitespace-nowrap tabular-nums">
+                                    {statusLabel}
+                                  </span>
+                                )}
+                              </div>
 
-                            <div className="text-xs font-medium text-emerald-700 dark:text-emerald-400 mt-0.5 tabular-nums">
-                              {leg.marketLabel} · Odd {leg.odd.toFixed(2)} ({leg.probabilityPct}%)
+                              {/* 2-Row Team Scoreboard */}
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between gap-2 min-w-0">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <TeamCrest
+                                      name={leg.homeTeam}
+                                      shortCode={leg.homeShortCode}
+                                      primaryColor={leg.homeColor || '#0F766E'}
+                                      secondaryColor="#FFFFFF"
+                                      logoUrl={leg.homeLogoUrl}
+                                      size="xs"
+                                    />
+                                    <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                                      {leg.homeTeam}
+                                    </span>
+                                  </div>
+                                  {displayScore && (
+                                    <span
+                                      className={`font-mono text-sm sm:text-base font-bold tabular-nums shrink-0 min-w-[26px] text-center px-1.5 py-0.5 rounded-md ${
+                                        isLive
+                                          ? 'bg-rose-100/80 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300'
+                                          : 'bg-slate-200/70 dark:bg-slate-800 text-slate-900 dark:text-slate-100'
+                                      }`}
+                                    >
+                                      {displayScore.homeGoals}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center justify-between gap-2 min-w-0">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <TeamCrest
+                                      name={leg.awayTeam}
+                                      shortCode={leg.awayShortCode}
+                                      primaryColor={leg.awayColor || '#1D4ED8'}
+                                      secondaryColor="#FFFFFF"
+                                      logoUrl={leg.awayLogoUrl}
+                                      size="xs"
+                                    />
+                                    <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                                      {leg.awayTeam}
+                                    </span>
+                                  </div>
+                                  {displayScore && (
+                                    <span
+                                      className={`font-mono text-sm sm:text-base font-bold tabular-nums shrink-0 min-w-[26px] text-center px-1.5 py-0.5 rounded-md ${
+                                        isLive
+                                          ? 'bg-rose-100/80 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300'
+                                          : 'bg-slate-200/70 dark:bg-slate-800 text-slate-900 dark:text-slate-100'
+                                      }`}
+                                    >
+                                      {displayScore.awayGoals}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs tabular-nums">
+                                <span className="font-medium text-emerald-700 dark:text-emerald-400">
+                                  {leg.marketLabel} · Odd {leg.odd.toFixed(2)} ({leg.probabilityPct}%)
+                                </span>
+                                {liveSignal && (
+                                  <span
+                                    className={`text-[11px] font-semibold ${
+                                      liveSignal.positive
+                                        ? 'text-emerald-700 dark:text-emerald-400'
+                                        : 'text-amber-700 dark:text-amber-400'
+                                    }`}
+                                  >
+                                    {liveSignal.label}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          </div>
 
                           <div
                             role="group"
@@ -518,9 +754,10 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                             >
                               Pendente
                             </button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     {/* Whole-Slip Actions */}
@@ -578,17 +815,62 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         <>
           {/* Calibration Summary (1X2 Analyses) */}
           <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5">
-            <div className="flex items-center justify-between gap-2 mb-4">
-              <div>
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4">
+              <div className="min-w-0">
                 <h2 className="font-display text-xl font-bold text-slate-900 dark:text-slate-100">
                   Histórico e calibração do modelo
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Compare previsões calculadas com os placares reais após as partidas.
+                  Acompanhe placares ao vivo da web e compare previsões calculadas com os resultados reais.
                 </p>
+                {(liveAnalysisGamesCount > 0 || formattedLiveSync) && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+                    {liveAnalysisGamesCount > 0 && (
+                      <span className="inline-flex items-center gap-1.5 font-bold text-rose-600 dark:text-rose-400">
+                        <span
+                          className="w-1.5 h-1.5 rounded-full bg-rose-600 dark:bg-rose-400 animate-pulse shrink-0"
+                          aria-hidden="true"
+                        />
+                        <span>
+                          {liveAnalysisGamesCount}{' '}
+                          {liveAnalysisGamesCount === 1
+                            ? 'jogo ao vivo agora'
+                            : 'jogos ao vivo agora'}
+                        </span>
+                      </span>
+                    )}
+                    {liveAnalysisGamesCount > 0 && formattedLiveSync && (
+                      <span aria-hidden="true">·</span>
+                    )}
+                    {formattedLiveSync && (
+                      <span>Placares atualizados às {formattedLiveSync}</span>
+                    )}
+                  </div>
+                )}
               </div>
-              <BarChart3 className="w-5 h-5 text-emerald-700 dark:text-emerald-400 shrink-0" />
+
+              {history.length > 0 && (
+                <button
+                  type="button"
+                  onClick={onCheckMultipleResults}
+                  disabled={isCheckingMultipleResults}
+                  className="w-full sm:w-auto min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
+                >
+                  {isCheckingMultipleResults ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span>Atualizar placares</span>
+                </button>
+              )}
             </div>
+
+            {multipleCheckMessage && (
+              <div className="mb-4 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-200">
+                {multipleCheckMessage}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700/70 p-3">
@@ -670,6 +952,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
               {filteredAnalyses.map((item) => {
                 const isEditing = editingId === item.id;
+                const isLive = item.liveScore?.state === 'in';
                 const hasResult = item.actualScore !== undefined;
                 const isHit =
                   hasResult &&
@@ -679,6 +962,28 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       item.actualScore.homeGoals,
                       item.actualScore.awayGoals
                     );
+
+                const livePartialMatches =
+                  isLive && item.liveScore
+                    ? getPredictedFavorite(item) ===
+                      getActualOutcome(
+                        item.liveScore.homeGoals,
+                        item.liveScore.awayGoals
+                      )
+                    : null;
+
+                const shownScore =
+                  isLive && item.liveScore
+                    ? {
+                        homeGoals: item.liveScore.homeGoals,
+                        awayGoals: item.liveScore.awayGoals,
+                      }
+                    : hasResult && item.actualScore
+                      ? {
+                          homeGoals: item.actualScore.homeGoals,
+                          awayGoals: item.actualScore.awayGoals,
+                        }
+                      : null;
 
                 const dateText = new Intl.DateTimeFormat('pt-BR', {
                   day: '2-digit',
@@ -690,14 +995,36 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 return (
                   <article
                     key={item.id}
-                    className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 flex flex-col justify-between gap-3"
+                    className={`rounded-2xl border p-4 flex flex-col justify-between gap-3 ${
+                      isLive
+                        ? 'bg-white dark:bg-slate-900 border-rose-200 dark:border-rose-900/70'
+                        : 'bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800'
+                    }`}
                   >
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-                        <span className="font-medium text-slate-700 dark:text-slate-300 truncate">
-                          {item.competition} · {dateText}
+                        <span className="inline-flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300 min-w-0 truncate">
+                          <CompetitionFlag
+                            leagueSlug={item.liveScore?.leagueSlug}
+                            competition={item.competition}
+                            size="sm"
+                          />
+                          <span className="truncate">
+                            {item.competition} · {dateText}
+                          </span>
                         </span>
-                        {hasResult && (
+
+                        {isLive ? (
+                          <span className="inline-flex items-center gap-1.5 font-bold text-rose-600 dark:text-rose-400 shrink-0 tabular-nums whitespace-nowrap">
+                            <span
+                              className="w-1.5 h-1.5 rounded-full bg-rose-600 dark:bg-rose-400 animate-pulse shrink-0"
+                              aria-hidden="true"
+                            />
+                            <span>
+                              AO VIVO · {item.liveScore?.statusDetail || 'Em andamento'}
+                            </span>
+                          </span>
+                        ) : hasResult ? (
                           <span
                             className={`inline-flex items-center gap-1 font-semibold shrink-0 ${
                               isHit
@@ -712,33 +1039,87 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                             )}
                             <span>{isHit ? 'Acertou 1X2' : 'Divergiu'}</span>
                           </span>
-                        )}
+                        ) : item.liveScore?.statusDetail ? (
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0 tabular-nums whitespace-nowrap">
+                            {item.liveScore.statusDetail}
+                          </span>
+                        ) : null}
                       </div>
 
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <TeamCrest
-                            name={item.homeTeam.name}
-                            shortCode={item.homeTeam.shortCode}
-                            primaryColor={item.homeTeam.primaryColor}
-                            secondaryColor={item.homeTeam.secondaryColor}
-                            size="sm"
-                          />
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2 sm:truncate">
-                              {item.homeTeam.name} × {item.awayTeam.name}
-                            </div>
-                            <div className="text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums mt-0.5">
-                              {item.predictedHomePct}% · {item.predictedDrawPct}% ·{' '}
-                              {item.predictedAwayPct}% · Placar {item.mostLikelyScore}
-                            </div>
+                      {/* 2-Row Team Scoreboard for 1X2 Analysis */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <TeamCrest
+                              name={item.homeTeam.name}
+                              shortCode={item.homeTeam.shortCode}
+                              primaryColor={item.homeTeam.primaryColor}
+                              secondaryColor={item.homeTeam.secondaryColor}
+                              logoUrl={item.homeTeam.logoUrl}
+                              size="sm"
+                            />
+                            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                              {item.homeTeam.name}
+                            </span>
                           </div>
+                          {shownScore && (
+                            <span
+                              className={`font-mono text-base font-bold tabular-nums shrink-0 min-w-[30px] text-center px-2 py-0.5 rounded-lg ${
+                                isLive
+                                  ? 'bg-rose-100/80 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300'
+                                  : 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
+                              }`}
+                            >
+                              {shownScore.homeGoals}
+                            </span>
+                          )}
                         </div>
 
-                        {hasResult && item.actualScore && (
-                          <div className="shrink-0 px-3 py-1.5 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-mono text-sm font-bold tabular-nums">
-                            {item.actualScore.homeGoals} x {item.actualScore.awayGoals}
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <TeamCrest
+                              name={item.awayTeam.name}
+                              shortCode={item.awayTeam.shortCode}
+                              primaryColor={item.awayTeam.primaryColor}
+                              secondaryColor={item.awayTeam.secondaryColor}
+                              logoUrl={item.awayTeam.logoUrl}
+                              size="sm"
+                            />
+                            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                              {item.awayTeam.name}
+                            </span>
                           </div>
+                          {shownScore && (
+                            <span
+                              className={`font-mono text-base font-bold tabular-nums shrink-0 min-w-[30px] text-center px-2 py-0.5 rounded-lg ${
+                                isLive
+                                  ? 'bg-rose-100/80 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300'
+                                  : 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
+                              }`}
+                            >
+                              {shownScore.awayGoals}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums">
+                        <span>
+                          {item.predictedHomePct}% · {item.predictedDrawPct}% ·{' '}
+                          {item.predictedAwayPct}% · Placar {item.mostLikelyScore}
+                        </span>
+                        {livePartialMatches !== null && (
+                          <span
+                            className={`font-sans text-[11px] font-semibold ${
+                              livePartialMatches
+                                ? 'text-emerald-700 dark:text-emerald-400'
+                                : 'text-amber-700 dark:text-amber-400'
+                            }`}
+                          >
+                            {livePartialMatches
+                              ? 'Parcial: favorável'
+                              : 'Parcial: divergindo'}
+                          </span>
                         )}
                       </div>
                     </div>

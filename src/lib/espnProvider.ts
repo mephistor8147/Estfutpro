@@ -3,7 +3,10 @@ import type {
   ChampionshipScope,
   GroundingSource,
   HeadToHeadMatch,
+  LiveScoreMatchResult,
+  LiveScoreQueryItem,
   MatchAnalysisData,
+  MatchLiveState,
   MatchOutcome,
   MultipleDayFilter,
   MultipleLegStatus,
@@ -26,6 +29,7 @@ interface EspnSearchTeam {
   alternateColor: string;
   defaultLeagueSlug: string;
   leagueName?: string;
+  logoUrl?: string;
 }
 
 const LEAGUE_SLUG_MAP: { match: RegExp; slug: string; label: string }[] = [
@@ -126,6 +130,22 @@ function sanitizeHex(hex?: string, fallback = '#0F766E'): string {
   return /^#[0-9A-Fa-f]{6}$/.test(clean) ? clean : fallback;
 }
 
+function extractTeamLogoUrl(teamObj: any): string | undefined {
+  const direct =
+    typeof teamObj?.logo === 'string' && teamObj.logo.startsWith('http')
+      ? teamObj.logo
+      : typeof teamObj?.logos?.[0]?.href === 'string' &&
+          teamObj.logos[0].href.startsWith('http')
+        ? teamObj.logos[0].href
+        : undefined;
+  if (direct) return direct;
+  const idStr = String(teamObj?.id || '').trim();
+  if (/^\d+$/.test(idStr)) {
+    return `https://a.espncdn.com/i/teamlogos/soccer/500/${idStr}.png`;
+  }
+  return undefined;
+}
+
 async function searchTeamInLeagueDirectory(
   query: string,
   leagueSlug: string
@@ -175,6 +195,7 @@ async function searchTeamInLeagueDirectory(
     color: sanitizeHex(bestTeam.color, '#0F766E'),
     alternateColor: sanitizeHex(bestTeam.alternateColor, '#FFFFFF'),
     defaultLeagueSlug: leagueSlug,
+    logoUrl: extractTeamLogoUrl(bestTeam),
   };
 }
 
@@ -259,6 +280,7 @@ async function searchEspnTeam(
     color: sanitizeHex(best.color, '#0F766E'),
     alternateColor: sanitizeHex(best.alternateColor, '#FFFFFF'),
     defaultLeagueSlug: best.defaultLeagueSlug || best.league || preferredSlug || 'bra.1',
+    logoUrl: extractTeamLogoUrl(best),
   };
 }
 
@@ -663,8 +685,19 @@ export async function fetchEspnLiveFixtures(
       }
 
       collected.push({
-        homeTeam: home.team?.displayName || home.team?.shortDisplayName || 'Mandante',
-        awayTeam: away.team?.displayName || away.team?.shortDisplayName || 'Visitante',
+        homeTeam: homeTitle,
+        awayTeam: awayTitle,
+        homeShortCode: (home.team?.abbreviation || homeTitle || 'MAN')
+          .slice(0, 3)
+          .toUpperCase(),
+        awayShortCode: (away.team?.abbreviation || awayTitle || 'VIS')
+          .slice(0, 3)
+          .toUpperCase(),
+        homeLogoUrl: extractTeamLogoUrl(home.team),
+        awayLogoUrl: extractTeamLogoUrl(away.team),
+        homeColor: sanitizeHex(home.team?.color, '#0F766E'),
+        awayColor: sanitizeHex(away.team?.color, '#1D4ED8'),
+        leagueSlug: slug,
         competition: compTitle,
         dateLabel,
         isLive,
@@ -678,12 +711,7 @@ export async function fetchEspnLiveFixtures(
     return a.timestamp - b.timestamp;
   });
 
-  return collected.slice(0, 10).map(({ homeTeam, awayTeam, competition, dateLabel }) => ({
-    homeTeam,
-    awayTeam,
-    competition,
-    dateLabel,
-  }));
+  return collected.slice(0, 10).map(({ isLive: _isLive, timestamp: _ts, ...rest }) => rest);
 }
 
 export async function analyzeMatchViaEspn(
@@ -918,12 +946,14 @@ export async function analyzeMatchViaEspn(
     shortCode: homeInfo.abbreviation,
     primaryColor: homeInfo.color,
     secondaryColor: homeInfo.alternateColor,
+    logoUrl: homeInfo.logoUrl,
   };
   const awayIdentity: TeamIdentity = {
     name: awayInfo.displayName,
     shortCode: awayInfo.abbreviation,
     primaryColor: awayInfo.color,
     secondaryColor: awayInfo.alternateColor,
+    logoUrl: awayInfo.logoUrl,
   };
 
   const analysisData: MatchAnalysisData = {
@@ -1180,10 +1210,12 @@ export async function buildMultipleTipViaEspn(
     homeName: string;
     homeAbbr: string;
     homeColor: string;
+    homeLogoUrl?: string;
     awayId: string;
     awayName: string;
     awayAbbr: string;
     awayColor: string;
+    awayLogoUrl?: string;
   }
 
   const extractUpcomingFromBatch = (batch: any, slug: string): CandidateMatch[] => {
@@ -1238,12 +1270,14 @@ export async function buildMultipleTipViaEspn(
           .slice(0, 3)
           .toUpperCase(),
         homeColor: sanitizeHex(home.team.color, '#0F766E'),
+        homeLogoUrl: extractTeamLogoUrl(home.team),
         awayId: String(away.team.id),
         awayName,
         awayAbbr: (away.team.abbreviation || awayName || 'VIS')
           .slice(0, 3)
           .toUpperCase(),
         awayColor: sanitizeHex(away.team.color, '#1D4ED8'),
+        awayLogoUrl: extractTeamLogoUrl(away.team),
       });
     }
     return out;
@@ -1691,6 +1725,10 @@ export async function buildMultipleTipViaEspn(
         awayTeam: match.awayName,
         homeShortCode: match.homeAbbr,
         awayShortCode: match.awayAbbr,
+        homeLogoUrl: match.homeLogoUrl,
+        awayLogoUrl: match.awayLogoUrl,
+        homeColor: match.homeColor,
+        awayColor: match.awayColor,
         competition: match.compLabel,
         dateLabel: match.dateLabel,
         marketLabel: bestOpt.marketLabel,
@@ -1831,6 +1869,9 @@ export interface MultipleLegCheckInput {
 export interface MultipleLegCheckResult {
   eventId: string;
   leagueSlug: string;
+  state?: MatchLiveState;
+  clock?: string;
+  statusDetail?: string;
   completed: boolean;
   status: MultipleLegStatus;
   actualScore?: {
@@ -1840,94 +1881,651 @@ export interface MultipleLegCheckResult {
   };
 }
 
-export async function checkMultipleLegsResultsViaEspn(
-  legs: MultipleLegCheckInput[]
-): Promise<MultipleLegCheckResult[]> {
-  const uniquePairs = Array.from(
+function formatYyyymmdd(date: Date): string {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
+  return `${y}${m}${d}`;
+}
+
+function cleanClubNameForMatch(raw: string): string {
+  return normalizeTeamText(raw)
+    .replace(/[-_./]+/g, ' ')
+    .replace(
+      /\b(fc|cf|sc|ec|cr|ac|se|ca|cd|ud|sd|rc|club|clube|esporte|sport|athletic|atletico|de|da|do|dos|das|regatas|futebol|football|real|racing)\b/g,
+      ' '
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function scoreTeamNameMatch(queryName: string, candidateName: string): number {
+  const qFull = normalizeTeamText(queryName).replace(/[-_./]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const cFull = normalizeTeamText(candidateName).replace(/[-_./]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!qFull || !cFull) return 0;
+  if (qFull === cFull) return 100;
+
+  const qClean = cleanClubNameForMatch(queryName) || qFull;
+  const cClean = cleanClubNameForMatch(candidateName) || cFull;
+  if (qClean === cClean && qClean.length >= 3) return 95;
+
+  if (
+    qClean.length >= 4 &&
+    cClean.length >= 4 &&
+    (cClean.includes(qClean) || qClean.includes(cClean))
+  ) {
+    return 82;
+  }
+
+  if (
+    qFull.length >= 4 &&
+    cFull.length >= 4 &&
+    (cFull.includes(qFull) || qFull.includes(cFull))
+  ) {
+    return 76;
+  }
+
+  const qTokens = qClean.split(' ').filter((t) => t.length >= 3);
+  const cTokens = cClean.split(' ').filter((t) => t.length >= 3);
+  if (qTokens.length > 0 && cTokens.length > 0) {
+    const overlap = qTokens.filter((t) => cTokens.includes(t)).length;
+    if (overlap === qTokens.length && overlap === cTokens.length) return 90;
+    if (overlap >= 1 && overlap / Math.max(qTokens.length, cTokens.length) >= 0.5) {
+      return 68;
+    }
+  }
+
+  return 0;
+}
+
+function extractEspnNumericScore(competitor: any): number | null {
+  if (!competitor) return null;
+  const raw =
+    typeof competitor.score === 'object' && competitor.score !== null
+      ? competitor.score.value ?? competitor.score.displayValue
+      : competitor.score;
+  if (raw === undefined || raw === null || raw === '') return null;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : null;
+}
+
+function formatEspnLiveStatus(
+  statusObj: any,
+  isoDate?: string
+): { state: MatchLiveState; completed: boolean; clock?: string; statusDetail: string } {
+  const statusType = statusObj?.type;
+  const rawState = String(statusType?.state || '').toLowerCase();
+  const typeName = String(statusType?.name || '').toUpperCase();
+  const shortDetail = String(statusType?.shortDetail || '').trim();
+  const displayClock = String(statusObj?.displayClock || '').trim();
+  const period = Number(statusObj?.period || 0);
+
+  const completed = Boolean(statusType?.completed || rawState === 'post');
+  if (completed) {
+    if (typeName.includes('PEN') || /\bPEN\b|PK/i.test(shortDetail)) {
+      return { state: 'post', completed: true, clock: 'FIM', statusDetail: 'Final (Pên.)' };
+    }
+    if (typeName.includes('AET') || /\bAET\b/i.test(shortDetail)) {
+      return { state: 'post', completed: true, clock: 'FIM', statusDetail: 'Final (Prorr.)' };
+    }
+    return { state: 'post', completed: true, clock: 'FIM', statusDetail: 'Finalizado' };
+  }
+
+  if (rawState === 'in') {
+    if (typeName.includes('HALFTIME') || /^HT$/i.test(shortDetail)) {
+      return { state: 'in', completed: false, clock: 'INT', statusDetail: 'Intervalo' };
+    }
+    if (typeName.includes('SHOOTOUT')) {
+      return { state: 'in', completed: false, clock: 'PEN', statusDetail: 'Pênaltis' };
+    }
+    const clockStr =
+      displayClock && displayClock !== "0'"
+        ? displayClock
+        : shortDetail && /^\d+/.test(shortDetail)
+          ? shortDetail
+          : '';
+    if (period === 1) {
+      return {
+        state: 'in',
+        completed: false,
+        clock: clockStr || '1ºT',
+        statusDetail: clockStr ? `1ºT · ${clockStr}` : '1º Tempo',
+      };
+    }
+    if (period === 2) {
+      return {
+        state: 'in',
+        completed: false,
+        clock: clockStr || '2ºT',
+        statusDetail: clockStr ? `2ºT · ${clockStr}` : '2º Tempo',
+      };
+    }
+    if (period >= 3) {
+      return {
+        state: 'in',
+        completed: false,
+        clock: clockStr || 'PROR',
+        statusDetail: clockStr ? `Prorr. · ${clockStr}` : 'Prorrogação',
+      };
+    }
+    return {
+      state: 'in',
+      completed: false,
+      clock: clockStr || 'VIVO',
+      statusDetail: clockStr ? `Em andamento · ${clockStr}` : 'Em andamento',
+    };
+  }
+
+  // Scheduled ('pre')
+  if (isoDate) {
+    const evDate = new Date(isoDate);
+    if (!Number.isNaN(evDate.getTime())) {
+      return {
+        state: 'pre',
+        completed: false,
+        statusDetail: formatUpcomingKickoffLabel(evDate, 'Agendado'),
+      };
+    }
+  }
+
+  return { state: 'pre', completed: false, statusDetail: 'Agendado' };
+}
+
+interface PoolScoreboardEvent {
+  eventId: string;
+  leagueSlug: string;
+  dateIso: string;
+  timestamp: number;
+  homeNames: string[];
+  awayNames: string[];
+  homeGoals: number | null;
+  awayGoals: number | null;
+  status: any;
+}
+
+function parseScoreboardEventsIntoPool(
+  rawJson: any,
+  fallbackSlug: string
+): PoolScoreboardEvent[] {
+  const events: any[] = rawJson?.events || [];
+  const out: PoolScoreboardEvent[] = [];
+
+  for (const ev of events) {
+    const comp = ev?.competitions?.[0];
+    if (!comp) continue;
+    const competitors: any[] = comp?.competitors || [];
+    const home = competitors.find((c) => c.homeAway === 'home');
+    const away = competitors.find((c) => c.homeAway === 'away');
+    if (!home || !away) continue;
+
+    const dateIso = ev.date || comp.date || '';
+    const ts = new Date(dateIso).getTime();
+    const homeNames = [
+      home.team?.displayName,
+      home.team?.shortDisplayName,
+      home.team?.name,
+      home.team?.location,
+    ].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+    const awayNames = [
+      away.team?.displayName,
+      away.team?.shortDisplayName,
+      away.team?.name,
+      away.team?.location,
+    ].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+
+    const slugFromEv =
+      ev?.league?.slug ||
+      comp?.league?.slug ||
+      rawJson?.leagues?.[0]?.slug ||
+      fallbackSlug;
+
+    out.push({
+      eventId: String(ev.id || comp.id || ''),
+      leagueSlug: slugFromEv || 'all',
+      dateIso,
+      timestamp: Number.isFinite(ts) ? ts : 0,
+      homeNames,
+      awayNames,
+      homeGoals: extractEspnNumericScore(home),
+      awayGoals: extractEspnNumericScore(away),
+      status: comp.status || ev.status,
+    });
+  }
+
+  return out;
+}
+
+function findBestPoolMatch(
+  item: LiveScoreQueryItem,
+  pool: PoolScoreboardEvent[]
+): { event: PoolScoreboardEvent; swapped: boolean } | null {
+  let best: { event: PoolScoreboardEvent; swapped: boolean; score: number } | null = null;
+  const hintTs = item.dateHint ? new Date(item.dateHint).getTime() : Date.now();
+
+  for (const ev of pool) {
+    const hDirect = Math.max(
+      0,
+      ...ev.homeNames.map((n) => scoreTeamNameMatch(item.homeTeam, n))
+    );
+    const aDirect = Math.max(
+      0,
+      ...ev.awayNames.map((n) => scoreTeamNameMatch(item.awayTeam, n))
+    );
+
+    const hSwap = Math.max(
+      0,
+      ...ev.awayNames.map((n) => scoreTeamNameMatch(item.homeTeam, n))
+    );
+    const aSwap = Math.max(
+      0,
+      ...ev.homeNames.map((n) => scoreTeamNameMatch(item.awayTeam, n))
+    );
+
+    let swapped = false;
+    let combined = 0;
+
+    if (hDirect >= 68 && aDirect >= 68) {
+      combined = hDirect + aDirect + 10;
+      swapped = false;
+    } else if (hSwap >= 76 && aSwap >= 76) {
+      combined = hSwap + aSwap;
+      swapped = true;
+    } else {
+      continue;
+    }
+
+    // Guard against attaching stale matches from months earlier/later
+    const state = String(ev.status?.type?.state || '').toLowerCase();
+    const DAY_MS = 1000 * 60 * 60 * 24;
+    if (ev.timestamp > 0 && Number.isFinite(hintTs)) {
+      const signedDiffDays = (ev.timestamp - hintTs) / DAY_MS;
+      if (state === 'post') {
+        // Completed match must have occurred near or shortly after the saved prediction
+        if (signedDiffDays < -3 || signedDiffDays > 16) continue;
+      } else if (state === 'pre') {
+        if (signedDiffDays < -1 || signedDiffDays > 30) continue;
+      } else if (state === 'in') {
+        if (Math.abs(signedDiffDays) > 30) continue;
+      }
+
+      const absDiffDays = Math.abs(signedDiffDays);
+      if (absDiffDays <= 2) combined += 15;
+      else if (absDiffDays <= 7) combined += 6;
+      else combined -= Math.min(20, absDiffDays);
+    }
+
+    // Prefer live matches first
+    if (state === 'in') combined += 25;
+
+    if (!best || combined > best.score) {
+      best = { event: ev, swapped, score: combined };
+    }
+  }
+
+  return best ? { event: best.event, swapped: best.swapped } : null;
+}
+
+export async function fetchLiveScoresViaEspn(
+  items: LiveScoreQueryItem[]
+): Promise<LiveScoreMatchResult[]> {
+  const nowIso = new Date().toISOString();
+  const bounded = items.slice(0, 35);
+  const resultsByKey = new Map<string, LiveScoreMatchResult>();
+
+  // Tier 1: Direct Event Summary lookup for items that already carry eventId
+  const directItems = bounded.filter((i) => i.eventId);
+  const uniqueDirect = Array.from(
     new Map(
-      legs
-        .filter((l) => l.eventId && l.leagueSlug)
-        .map((l) => [`${l.leagueSlug}:${l.eventId}`, l])
+      directItems.map((i) => [`${i.leagueSlug || 'all'}:${i.eventId}`, i])
     ).values()
-  ).slice(0, 25);
+  );
 
-  const summaryByKey = new Map<string, any>();
-
+  const summaryByPair = new Map<string, any>();
   await Promise.all(
-    uniquePairs.map(async (item) => {
-      const slug = String(item.leagueSlug);
+    uniqueDirect.map(async (item) => {
       const eventId = String(item.eventId);
-      const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${encodeURIComponent(
-        slug
-      )}/summary?event=${encodeURIComponent(eventId)}`;
-      const json = await fetchJson<any>(url, 7000);
-      if (json) {
-        summaryByKey.set(`${slug}:${eventId}`, json);
+      const slug =
+        item.leagueSlug &&
+        item.leagueSlug !== 'today' &&
+        item.leagueSlug !== 'tomorrow' &&
+        item.leagueSlug !== 'world'
+          ? item.leagueSlug
+          : 'all';
+
+      let json = await fetchJson<any>(
+        `https://site.api.espn.com/apis/site/v2/sports/soccer/${encodeURIComponent(
+          slug
+        )}/summary?event=${encodeURIComponent(eventId)}`,
+        6500
+      );
+
+      if (!json?.header?.competitions?.[0] && slug !== 'all') {
+        json = await fetchJson<any>(
+          `https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary?event=${encodeURIComponent(
+            eventId
+          )}`,
+          6500
+        );
+      }
+
+      if (json?.header?.competitions?.[0]) {
+        summaryByPair.set(`${item.leagueSlug || 'all'}:${eventId}`, json);
       }
     })
   );
 
-  return legs.map((leg) => {
-    const eventId = String(leg.eventId || '');
-    const leagueSlug = String(leg.leagueSlug || '');
-    if (!eventId || !leagueSlug) {
-      return {
-        eventId,
-        leagueSlug,
-        completed: false,
-        status: 'pending' as MultipleLegStatus,
-      };
-    }
-
-    const summary = summaryByKey.get(`${leagueSlug}:${eventId}`);
+  for (const item of directItems) {
+    const pairKey = `${item.leagueSlug || 'all'}:${item.eventId}`;
+    const summary = summaryByPair.get(pairKey);
     const comp = summary?.header?.competitions?.[0];
-    const statusType = comp?.status?.type;
-    const completed = Boolean(
-      statusType?.completed || statusType?.state === 'post'
-    );
+    if (!comp) continue;
 
-    if (!comp || !completed) {
-      return {
-        eventId,
-        leagueSlug,
-        completed: false,
-        status: 'pending' as MultipleLegStatus,
-      };
-    }
-
-    const competitors: any[] = comp?.competitors || [];
+    const statusInfo = formatEspnLiveStatus(comp.status, comp.date);
+    const competitors: any[] = comp.competitors || [];
     const home = competitors.find((c) => c.homeAway === 'home');
     const away = competitors.find((c) => c.homeAway === 'away');
-    const homeGoals = Number(home?.score);
-    const awayGoals = Number(away?.score);
+    const homeGoals = extractEspnNumericScore(home);
+    const awayGoals = extractEspnNumericScore(away);
 
-    if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) {
-      return {
-        eventId,
-        leagueSlug,
-        completed: false,
-        status: 'pending' as MultipleLegStatus,
-      };
-    }
+    const hasScore =
+      (statusInfo.state === 'in' || statusInfo.state === 'post') &&
+      homeGoals !== null &&
+      awayGoals !== null;
 
-    const status = evaluateMultipleMarketOutcome(
-      leg.marketLabel,
-      leg.homeTeam,
-      leg.awayTeam,
-      homeGoals,
-      awayGoals
+    const marketStatus: MultipleLegStatus | undefined =
+      item.marketLabel && statusInfo.completed && hasScore
+        ? evaluateMultipleMarketOutcome(
+            item.marketLabel,
+            item.homeTeam,
+            item.awayTeam,
+            homeGoals,
+            awayGoals
+          )
+        : undefined;
+
+    resultsByKey.set(item.key, {
+      key: item.key,
+      found: true,
+      state: statusInfo.state,
+      completed: statusInfo.completed,
+      homeGoals: hasScore ? homeGoals : undefined,
+      awayGoals: hasScore ? awayGoals : undefined,
+      clock: statusInfo.clock,
+      statusDetail: statusInfo.statusDetail,
+      eventId: String(item.eventId),
+      leagueSlug: item.leagueSlug,
+      sourceLabel: 'ESPN',
+      marketStatus,
+      updatedAt: nowIso,
+    });
+  }
+
+  // Tier 2: Global 3-day Scoreboard + specific league scoreboards for items without eventId (or missed in Tier 1)
+  const unresolvedAfterTier1 = bounded.filter((i) => !resultsByKey.has(i.key));
+  if (unresolvedAfterTier1.length > 0) {
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    const targetSlugs = Array.from(
+      new Set(
+        unresolvedAfterTier1
+          .map((i) => {
+            if (
+              i.leagueSlug &&
+              i.leagueSlug !== 'today' &&
+              i.leagueSlug !== 'tomorrow' &&
+              i.leagueSlug !== 'world'
+            ) {
+              return i.leagueSlug;
+            }
+            return resolveLeagueSlug(i.competition || '');
+          })
+          .filter((s): s is string => Boolean(s))
+      )
+    ).slice(0, 6);
+
+    const scoreboardUrls: { url: string; slug: string }[] = [
+      {
+        url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard',
+        slug: 'all',
+      },
+      {
+        url: `https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates=${formatYyyymmdd(
+          yesterday
+        )}`,
+        slug: 'all',
+      },
+      {
+        url: `https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates=${formatYyyymmdd(
+          tomorrow
+        )}`,
+        slug: 'all',
+      },
+      ...targetSlugs.map((slug) => ({
+        url: `https://site.api.espn.com/apis/site/v2/sports/soccer/${encodeURIComponent(
+          slug
+        )}/scoreboard`,
+        slug,
+      })),
+    ];
+
+    const boards = await Promise.all(
+      scoreboardUrls.map(async (entry) => ({
+        slug: entry.slug,
+        json: await fetchJson<any>(entry.url, 6500),
+      }))
     );
 
+    const seenEvIds = new Set<string>();
+    const pool: PoolScoreboardEvent[] = [];
+    for (const board of boards) {
+      if (!board.json) continue;
+      for (const ev of parseScoreboardEventsIntoPool(board.json, board.slug)) {
+        if (ev.eventId && seenEvIds.has(ev.eventId)) continue;
+        if (ev.eventId) seenEvIds.add(ev.eventId);
+        pool.push(ev);
+      }
+    }
+
+    for (const item of unresolvedAfterTier1) {
+      const matched = findBestPoolMatch(item, pool);
+      if (!matched) continue;
+
+      const { event, swapped } = matched;
+      const statusInfo = formatEspnLiveStatus(event.status, event.dateIso);
+      const rawHome = swapped ? event.awayGoals : event.homeGoals;
+      const rawAway = swapped ? event.homeGoals : event.awayGoals;
+      const hasScore =
+        (statusInfo.state === 'in' || statusInfo.state === 'post') &&
+        rawHome !== null &&
+        rawAway !== null;
+
+      const marketStatus: MultipleLegStatus | undefined =
+        item.marketLabel && statusInfo.completed && hasScore
+          ? evaluateMultipleMarketOutcome(
+              item.marketLabel,
+              item.homeTeam,
+              item.awayTeam,
+              rawHome,
+              rawAway
+            )
+          : undefined;
+
+      resultsByKey.set(item.key, {
+        key: item.key,
+        found: true,
+        state: statusInfo.state,
+        completed: statusInfo.completed,
+        homeGoals: hasScore ? rawHome : undefined,
+        awayGoals: hasScore ? rawAway : undefined,
+        clock: statusInfo.clock,
+        statusDetail: statusInfo.statusDetail,
+        eventId: event.eventId || item.eventId,
+        leagueSlug: event.leagueSlug !== 'all' ? event.leagueSlug : item.leagueSlug,
+        sourceLabel: 'ESPN',
+        marketStatus,
+        updatedAt: nowIso,
+      });
+    }
+  }
+
+  // Tier 3: Team Schedule lookup for remaining unresolved items (e.g., matches from earlier this week)
+  const unresolvedAfterTier2 = bounded
+    .filter((i) => !resultsByKey.has(i.key))
+    .slice(0, 6);
+
+  if (unresolvedAfterTier2.length > 0) {
+    await Promise.all(
+      unresolvedAfterTier2.map(async (item) => {
+        const preferredSlug =
+          item.leagueSlug &&
+          item.leagueSlug !== 'today' &&
+          item.leagueSlug !== 'tomorrow' &&
+          item.leagueSlug !== 'world'
+            ? item.leagueSlug
+            : resolveLeagueSlug(item.competition || '');
+
+        const team = await searchEspnTeam(item.homeTeam, preferredSlug);
+        if (!team) return;
+
+        const scheduleLeague = preferredSlug || team.defaultLeagueSlug || 'bra.1';
+        let schedJson = await fetchJson<any>(
+          `https://site.api.espn.com/apis/site/v2/sports/soccer/${encodeURIComponent(
+            scheduleLeague
+          )}/teams/${encodeURIComponent(team.id)}/schedule`,
+          6500
+        );
+
+        if ((!schedJson?.events || schedJson.events.length === 0) && scheduleLeague !== team.defaultLeagueSlug) {
+          schedJson = await fetchJson<any>(
+            `https://site.api.espn.com/apis/site/v2/sports/soccer/${encodeURIComponent(
+              team.defaultLeagueSlug
+            )}/teams/${encodeURIComponent(team.id)}/schedule`,
+            6500
+          );
+        }
+
+        if (!schedJson?.events?.length) return;
+        const teamPool = parseScoreboardEventsIntoPool(schedJson, scheduleLeague);
+        const matched = findBestPoolMatch(item, teamPool);
+        if (!matched) return;
+
+        let { event, swapped } = matched;
+        // If live or recently started, refine via live summary endpoint for up-to-the-minute clock
+        const rawState = String(event.status?.type?.state || '').toLowerCase();
+        if (rawState === 'in' && event.eventId) {
+          const liveSummary = await fetchJson<any>(
+            `https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary?event=${encodeURIComponent(
+              event.eventId
+            )}`,
+            5000
+          );
+          const liveComp = liveSummary?.header?.competitions?.[0];
+          if (liveComp) {
+            const comps: any[] = liveComp.competitors || [];
+            const hComp = comps.find((c) => c.homeAway === 'home');
+            const aComp = comps.find((c) => c.homeAway === 'away');
+            event = {
+              ...event,
+              status: liveComp.status || event.status,
+              homeGoals: extractEspnNumericScore(hComp) ?? event.homeGoals,
+              awayGoals: extractEspnNumericScore(aComp) ?? event.awayGoals,
+            };
+          }
+        }
+
+        const statusInfo = formatEspnLiveStatus(event.status, event.dateIso);
+        const rawHome = swapped ? event.awayGoals : event.homeGoals;
+        const rawAway = swapped ? event.homeGoals : event.awayGoals;
+        const hasScore =
+          (statusInfo.state === 'in' || statusInfo.state === 'post') &&
+          rawHome !== null &&
+          rawAway !== null;
+
+        const marketStatus: MultipleLegStatus | undefined =
+          item.marketLabel && statusInfo.completed && hasScore
+            ? evaluateMultipleMarketOutcome(
+                item.marketLabel,
+                item.homeTeam,
+                item.awayTeam,
+                rawHome,
+                rawAway
+              )
+            : undefined;
+
+        resultsByKey.set(item.key, {
+          key: item.key,
+          found: true,
+          state: statusInfo.state,
+          completed: statusInfo.completed,
+          homeGoals: hasScore ? rawHome : undefined,
+          awayGoals: hasScore ? rawAway : undefined,
+          clock: statusInfo.clock,
+          statusDetail: statusInfo.statusDetail,
+          eventId: event.eventId || item.eventId,
+          leagueSlug: event.leagueSlug !== 'all' ? event.leagueSlug : scheduleLeague,
+          sourceLabel: 'ESPN',
+          marketStatus,
+          updatedAt: nowIso,
+        });
+      })
+    );
+  }
+
+  return bounded.map(
+    (item) =>
+      resultsByKey.get(item.key) ?? {
+        key: item.key,
+        found: false,
+        state: 'pre',
+        completed: false,
+        statusDetail: 'Sem atualização ao vivo',
+        eventId: item.eventId,
+        leagueSlug: item.leagueSlug,
+        sourceLabel: 'ESPN',
+        updatedAt: nowIso,
+      }
+  );
+}
+
+export async function checkMultipleLegsResultsViaEspn(
+  legs: MultipleLegCheckInput[]
+): Promise<MultipleLegCheckResult[]> {
+  const queryItems: LiveScoreQueryItem[] = legs.map((leg, idx) => ({
+    key: `leg:${idx}`,
+    eventId: leg.eventId,
+    leagueSlug: leg.leagueSlug,
+    homeTeam: leg.homeTeam,
+    awayTeam: leg.awayTeam,
+    marketLabel: leg.marketLabel,
+  }));
+
+  const resolved = await fetchLiveScoresViaEspn(queryItems);
+
+  return legs.map((leg, idx) => {
+    const res = resolved[idx];
+    const hasScore =
+      res &&
+      res.found &&
+      typeof res.homeGoals === 'number' &&
+      typeof res.awayGoals === 'number';
+
     return {
-      eventId,
-      leagueSlug,
-      completed: true,
-      status,
-      actualScore: {
-        homeGoals,
-        awayGoals,
-        statusDetail: statusType?.shortDetail || 'Finalizado',
-      },
+      eventId: String(res?.eventId || leg.eventId || ''),
+      leagueSlug: String(res?.leagueSlug || leg.leagueSlug || ''),
+      state: res?.state,
+      clock: res?.clock,
+      statusDetail: res?.statusDetail,
+      completed: Boolean(res?.completed),
+      status: res?.completed && res.marketStatus ? res.marketStatus : 'pending',
+      actualScore: hasScore
+        ? {
+            homeGoals: res.homeGoals!,
+            awayGoals: res.awayGoals!,
+            statusDetail: res.statusDetail,
+          }
+        : undefined,
     };
   });
 }

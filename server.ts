@@ -7,6 +7,7 @@ import {
   analyzeMatchService,
   checkMultipleResultsService,
   getFixturesService,
+  getLiveScoresService,
   getSerieAMultipleService,
   resolveApiError,
   resolveGeminiApiKey,
@@ -160,6 +161,27 @@ async function startServer() {
         'Não foi possível verificar os placares das múltiplas na ESPN.'
       );
       console.error('Error checking multiple results:', error?.message || error);
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.post('/api/live-scores', async (req, res) => {
+    try {
+      const matches = Array.isArray(req.body?.matches) ? req.body.matches : [];
+      const forceRefresh = Boolean(req.body?.forceRefresh);
+      const allowWebFallback = Boolean(req.body?.allowWebFallback);
+      const results = await getLiveScoresService(matches, {
+        forceRefresh,
+        allowWebFallback,
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ results, checkedAt: new Date().toISOString() });
+    } catch (error: any) {
+      const { status, message } = resolveApiError(
+        error,
+        'Não foi possível buscar os placares ao vivo na web no momento.'
+      );
+      console.error('Error fetching live scores:', error?.message || error);
       res.status(status).json({ error: message });
     }
   });

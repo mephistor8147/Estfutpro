@@ -3,7 +3,10 @@ import type {
   AnalysisResponsePayload,
   ChampionshipScope,
   GroundingSource,
+  LiveScoreMatchResult,
+  LiveScoreQueryItem,
   MatchAnalysisData,
+  MatchLiveState,
   MultipleDayFilter,
   SerieAMultipleTip,
   SuggestedFixture,
@@ -12,7 +15,9 @@ import {
   analyzeMatchViaEspn,
   buildMultipleTipViaEspn,
   checkMultipleLegsResultsViaEspn,
+  evaluateMultipleMarketOutcome,
   fetchEspnLiveFixtures,
+  fetchLiveScoresViaEspn,
   type MultipleLegCheckInput,
   type MultipleLegCheckResult,
 } from './espnProvider.js';
@@ -21,6 +26,7 @@ import { MULTIPLE_COMPETITION_SET } from './competitions.js';
 const FIXTURES_TTL_MS = 30 * 60 * 1000;
 const ANALYSIS_TTL_MS = 15 * 60 * 1000;
 const MULTIPLE_TTL_MS = 30 * 60 * 1000;
+const LIVE_SCORE_TTL_MS = 20 * 1000;
 
 const fixturesCache = new Map<
   ChampionshipScope,
@@ -35,6 +41,11 @@ const analysisCache = new Map<
 const multipleCache = new Map<
   string,
   { tip: SerieAMultipleTip; expiresAt: number }
+>();
+
+const liveScoreCache = new Map<
+  string,
+  { result: LiveScoreMatchResult; expiresAt: number }
 >();
 
 export function resolveGeminiApiKey(): string | null {
@@ -748,4 +759,202 @@ export async function checkMultipleResultsService(
     return [];
   }
   return checkMultipleLegsResultsViaEspn(legs);
+}
+
+interface GeminiWebScoreItem {
+  key: string;
+  found: boolean;
+  state: 'pre' | 'in' | 'post';
+  homeGoals: number | null;
+  awayGoals: number | null;
+  clock?: string | null;
+  statusDetail?: string | null;
+}
+
+async function fetchMissingLiveScoresViaWebSearch(
+  missingItems: LiveScoreQueryItem[]
+): Promise<Map<string, LiveScoreMatchResult>> {
+  const out = new Map<string, LiveScoreMatchResult>();
+  if (missingItems.length === 0 || !resolveGeminiApiKey()) {
+    return out;
+  }
+
+  const targetSlice = missingItems.slice(0, 4);
+  const nowIso = new Date().toISOString();
+  const todayBr = new Intl.DateTimeFormat('pt-BR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(new Date());
+
+  try {
+    const ai = getAiClient();
+    const listText = targetSlice
+      .map(
+        (m) =>
+          `- key="${m.key}" | ${m.homeTeam} x ${m.awayTeam} | Competição: ${
+            m.competition || 'Futebol'
+          }${m.dateHint ? ` | Salvo em: ${m.dateHint.slice(0, 10)}` : ''}`
+      )
+      .join('\n');
+
+    const prompt = `Data/hora atual: ${todayBr}.
+Pesquise na web (Google Search) o placar ao vivo ou placar final mais recente para cada jogo abaixo:
+${listText}
+
+REGRA ESTRITA: Nunca invente placares ou minutos. Se não encontrar confirmação real na web para um jogo, retorne "found": false.
+Retorne EXCLUSIVAMENTE um JSON válido neste formato:
+{
+  "matches": [
+    {
+      "key": "string",
+      "found": true,
+      "state": "in" | "post" | "pre",
+      "homeGoals": 0,
+      "awayGoals": 0,
+      "clock": "67'" | "INT" | "FIM" | null,
+      "statusDetail": "2ºT · 67'" | "Intervalo" | "Finalizado" | "Hoje · 21:00"
+    }
+  ]
+}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
+    });
+
+    const parsed = extractJsonBlock<{ matches?: GeminiWebScoreItem[] }>(
+      response.text ?? ''
+    );
+    const matches = Array.isArray(parsed?.matches) ? parsed.matches : [];
+    const byKey = new Map(targetSlice.map((item) => [item.key, item]));
+
+    for (const row of matches) {
+      if (!row?.found || !row.key) continue;
+      const orig = byKey.get(row.key);
+      if (!orig) continue;
+
+      const state: MatchLiveState =
+        row.state === 'in' || row.state === 'post' ? row.state : 'pre';
+      const completed = state === 'post';
+      const hasScore =
+        (state === 'in' || state === 'post') &&
+        typeof row.homeGoals === 'number' &&
+        Number.isFinite(row.homeGoals) &&
+        typeof row.awayGoals === 'number' &&
+        Number.isFinite(row.awayGoals);
+
+      const marketStatus =
+        orig.marketLabel && completed && hasScore
+          ? evaluateMultipleMarketOutcome(
+              orig.marketLabel,
+              orig.homeTeam,
+              orig.awayTeam,
+              row.homeGoals!,
+              row.awayGoals!
+            )
+          : undefined;
+
+      out.set(orig.key, {
+        key: orig.key,
+        found: true,
+        state,
+        completed,
+        homeGoals: hasScore ? row.homeGoals! : undefined,
+        awayGoals: hasScore ? row.awayGoals! : undefined,
+        clock: row.clock || (completed ? 'FIM' : undefined),
+        statusDetail:
+          row.statusDetail ||
+          (completed ? 'Finalizado' : state === 'in' ? 'Ao vivo' : 'Agendado'),
+        eventId: orig.eventId,
+        leagueSlug: orig.leagueSlug,
+        sourceLabel: 'Busca Web',
+        marketStatus,
+        updatedAt: nowIso,
+      });
+    }
+  } catch {
+    // Web search fallback is strictly optional; keep ESPN results intact
+  }
+
+  return out;
+}
+
+export async function getLiveScoresService(
+  items: LiveScoreQueryItem[],
+  options?: { forceRefresh?: boolean; allowWebFallback?: boolean }
+): Promise<LiveScoreMatchResult[]> {
+  if (!Array.isArray(items) || items.length === 0) {
+    return [];
+  }
+
+  const forceRefresh = Boolean(options?.forceRefresh);
+  const allowWebFallback = Boolean(options?.allowWebFallback);
+  const now = Date.now();
+  const bounded = items.slice(0, 35);
+
+  const finalByKey = new Map<string, LiveScoreMatchResult>();
+  const toFetch: LiveScoreQueryItem[] = [];
+
+  for (const item of bounded) {
+    const cacheId = item.eventId
+      ? `ev:${item.eventId}:${item.marketLabel || ''}`
+      : `nm:${item.homeTeam.toLowerCase()}::${item.awayTeam.toLowerCase()}::${item.marketLabel || ''}`;
+    const cached = liveScoreCache.get(cacheId);
+    if (!forceRefresh && cached && cached.expiresAt > now) {
+      finalByKey.set(item.key, { ...cached.result, key: item.key });
+    } else {
+      toFetch.push(item);
+    }
+  }
+
+  if (toFetch.length > 0) {
+    const espnResults = await fetchLiveScoresViaEspn(toFetch);
+    const missingForWeb: LiveScoreQueryItem[] = [];
+
+    espnResults.forEach((res, idx) => {
+      const orig = toFetch[idx];
+      if (res.found) {
+        finalByKey.set(orig.key, res);
+      } else {
+        missingForWeb.push(orig);
+        finalByKey.set(orig.key, res);
+      }
+    });
+
+    if (allowWebFallback && missingForWeb.length > 0) {
+      const webMap = await fetchMissingLiveScoresViaWebSearch(missingForWeb);
+      for (const [k, webRes] of webMap.entries()) {
+        finalByKey.set(k, webRes);
+      }
+    }
+
+    for (const orig of toFetch) {
+      const resolved = finalByKey.get(orig.key);
+      if (!resolved) continue;
+      const cacheId = orig.eventId
+        ? `ev:${orig.eventId}:${orig.marketLabel || ''}`
+        : `nm:${orig.homeTeam.toLowerCase()}::${orig.awayTeam.toLowerCase()}::${orig.marketLabel || ''}`;
+      liveScoreCache.set(cacheId, {
+        result: resolved,
+        expiresAt: Date.now() + LIVE_SCORE_TTL_MS,
+      });
+    }
+  }
+
+  return bounded.map(
+    (item) =>
+      finalByKey.get(item.key) ?? {
+        key: item.key,
+        found: false,
+        state: 'pre',
+        completed: false,
+        statusDetail: 'Sem atualização ao vivo',
+        sourceLabel: 'ESPN',
+        updatedAt: new Date().toISOString(),
+      }
+  );
 }

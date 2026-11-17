@@ -1,5 +1,6 @@
 import React from 'react';
 import { Bookmark, Check, RefreshCw, ArrowRight } from 'lucide-react';
+import { CompetitionFlag } from './CompetitionFlag.tsx';
 import { TeamCrest } from './TeamCrest.tsx';
 import type { AnalysisResponsePayload, PoissonModelResult } from '../types/football.ts';
 
@@ -35,6 +36,7 @@ export const ProbabilityHero: React.FC<ProbabilityHeroProps> = ({
       {/* Unboxed clean metadata header */}
       <div className="px-3.5 sm:px-5 pt-3.5 sm:pt-4 pb-3 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0">
+          <CompetitionFlag competition={data.competition} size="md" />
           <span className="font-semibold text-slate-800 dark:text-slate-200 break-words">
             {data.competition}
           </span>
@@ -61,6 +63,7 @@ export const ProbabilityHero: React.FC<ProbabilityHeroProps> = ({
               shortCode={data.homeTeam.shortCode}
               primaryColor={data.homeTeam.primaryColor}
               secondaryColor={data.homeTeam.secondaryColor}
+              logoUrl={data.homeTeam.logoUrl}
               size="lg"
             />
             <h2 className="mt-2 font-display text-lg min-[400px]:text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight line-clamp-2 break-words w-full">
@@ -86,6 +89,7 @@ export const ProbabilityHero: React.FC<ProbabilityHeroProps> = ({
               shortCode={data.awayTeam.shortCode}
               primaryColor={data.awayTeam.primaryColor}
               secondaryColor={data.awayTeam.secondaryColor}
+              logoUrl={data.awayTeam.logoUrl}
               size="lg"
             />
             <h2 className="mt-2 font-display text-lg min-[400px]:text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight line-clamp-2 break-words w-full">

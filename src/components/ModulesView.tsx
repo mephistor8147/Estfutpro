@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { ExternalLink, AlertCircle, RotateCcw } from 'lucide-react';
+import { CompetitionFlag } from './CompetitionFlag.tsx';
+import { TeamCrest } from './TeamCrest.tsx';
 import type {
   AnalysisResponsePayload,
   AppSettings,
@@ -326,19 +328,29 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
               className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5"
             >
               <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div className="min-w-0">
-                  <span
-                    className={`text-xs font-semibold ${
-                      tone === 'emerald'
-                        ? 'text-emerald-700 dark:text-emerald-400'
-                        : 'text-blue-700 dark:text-blue-400'
-                    }`}
-                  >
-                    {label}
-                  </span>
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 truncate">
-                    {team.name}
-                  </h3>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <TeamCrest
+                    name={team.name}
+                    shortCode={team.shortCode}
+                    primaryColor={team.primaryColor}
+                    secondaryColor={team.secondaryColor}
+                    logoUrl={team.logoUrl}
+                    size="sm"
+                  />
+                  <div className="min-w-0">
+                    <span
+                      className={`text-xs font-semibold ${
+                        tone === 'emerald'
+                          ? 'text-emerald-700 dark:text-emerald-400'
+                          : 'text-blue-700 dark:text-blue-400'
+                      }`}
+                    >
+                      {label}
+                    </span>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 truncate">
+                      {team.name}
+                    </h3>
+                  </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   {stats.matches.map((m, idx) => (
@@ -520,8 +532,11 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
             <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
               Módulo 3 — Classificação no campeonato
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              {data.competition} · {data.season}
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5">
+              <CompetitionFlag competition={data.competition} size="sm" />
+              <span>
+                {data.competition} · {data.season}
+              </span>
             </p>
           </div>
 
@@ -737,9 +752,19 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
                 className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 space-y-3"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
-                  <h4 className="font-bold text-slate-900 dark:text-slate-100 min-w-0 truncate">
-                    {team.name}
-                  </h4>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <TeamCrest
+                      name={team.name}
+                      shortCode={team.shortCode}
+                      primaryColor={team.primaryColor}
+                      secondaryColor={team.secondaryColor}
+                      logoUrl={team.logoUrl}
+                      size="xs"
+                    />
+                    <h4 className="font-bold text-slate-900 dark:text-slate-100 min-w-0 truncate">
+                      {team.name}
+                    </h4>
+                  </div>
                   <span
                     className={`text-xs font-mono tabular-nums shrink-0 ${
                       tone === 'emerald'

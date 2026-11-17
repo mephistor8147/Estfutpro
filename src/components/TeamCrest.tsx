@@ -1,31 +1,79 @@
-import React from 'react';
+import React, { useEffect, useId, useState } from 'react';
 
 interface TeamCrestProps {
   name: string;
   shortCode: string;
-  primaryColor: string;
-  secondaryColor: string;
-  size?: 'sm' | 'md' | 'lg';
+  primaryColor?: string;
+  secondaryColor?: string;
+  logoUrl?: string;
+  size?: 'xs' | 'sm' | 'md' | 'lg';
 }
 
 export const TeamCrest: React.FC<TeamCrestProps> = ({
   name,
   shortCode,
-  primaryColor,
-  secondaryColor,
+  primaryColor = '#0F766E',
+  secondaryColor = '#FFFFFF',
+  logoUrl,
   size = 'md',
 }) => {
-  const dimensions =
-    size === 'lg' ? 'w-14 h-16' : size === 'sm' ? 'w-8 h-9' : 'w-11 h-12';
-  const fontSize =
-    size === 'lg' ? 'text-[13px]' : size === 'sm' ? 'text-[9px]' : 'text-[11px]';
+  const [imgError, setImgError] = useState(false);
+  const clipId = useId();
 
-  const clipId = `shield-${shortCode}-${primaryColor.replace('#', '')}-${size}`;
+  useEffect(() => {
+    setImgError(false);
+  }, [logoUrl]);
+
+  const shieldDimensions =
+    size === 'lg'
+      ? 'w-14 h-16'
+      : size === 'sm'
+        ? 'w-8 h-9'
+        : size === 'xs'
+          ? 'w-6 h-6'
+          : 'w-11 h-12';
+
+  const imgBoxDimensions =
+    size === 'lg'
+      ? 'w-14 h-14'
+      : size === 'sm'
+        ? 'w-8 h-8'
+        : size === 'xs'
+          ? 'w-6 h-6'
+          : 'w-11 h-11';
+
+  const fontSize =
+    size === 'lg'
+      ? 'text-[13px]'
+      : size === 'sm'
+        ? 'text-[9px]'
+        : size === 'xs'
+          ? 'text-[7px]'
+          : 'text-[11px]';
+
+  if (logoUrl && !imgError) {
+    return (
+      <div
+        className={`relative shrink-0 flex items-center justify-center select-none ${imgBoxDimensions}`}
+        aria-label={`Brasão de ${name}`}
+      >
+        <img
+          src={logoUrl}
+          alt={`Brasão de ${name}`}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={() => setImgError(true)}
+          className="w-full h-full object-contain drop-shadow-[0_1px_2px_rgba(15,23,42,0.18)]"
+        />
+      </div>
+    );
+  }
 
   return (
     <div
-      className={`relative shrink-0 flex items-center justify-center select-none ${dimensions}`}
-      aria-label={`Escudo de ${name}`}
+      className={`relative shrink-0 flex items-center justify-center select-none ${shieldDimensions}`}
+      aria-label={`Brasão de ${name}`}
     >
       <svg
         viewBox="0 0 44 50"
@@ -64,7 +112,7 @@ export const TeamCrest: React.FC<TeamCrestProps> = ({
       <span
         className={`absolute inset-0 flex items-center justify-center font-mono font-semibold tracking-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)] ${fontSize}`}
       >
-        {shortCode.slice(0, 3).toUpperCase()}
+        {(shortCode || name).slice(0, 3).toUpperCase()}
       </span>
     </div>
   );

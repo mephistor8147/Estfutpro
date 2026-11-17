@@ -9,7 +9,6 @@ import {
   Copy,
   Download,
   Flame,
-  Globe,
   History,
   Image as ImageIcon,
   Loader2,
@@ -19,6 +18,8 @@ import {
   X,
 } from 'lucide-react';
 import { MULTIPLE_COMPETITIONS } from '../lib/competitions.ts';
+import { CompetitionFlag } from './CompetitionFlag.tsx';
+import { TeamCrest } from './TeamCrest.tsx';
 import {
   buildWhatsappSummaryText,
   formatBrlCurrency,
@@ -321,11 +322,6 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
     (tip.requestedCount ?? tip.legs.length) !== selectedCount ||
     tipDayFilter !== effectiveDayFilter;
 
-  const isMultiLeagueTip =
-    tip?.leagueSlug === 'world' ||
-    tip?.leagueSlug === 'today' ||
-    tip?.leagueSlug === 'tomorrow';
-
   const gridColsClass =
     selectedCount === 10
       ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3'
@@ -373,21 +369,35 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
           </div>
 
           {!isTipMismatched && tip ? (
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
-              {tip.competition} · {tip.legs.length}{' '}
-              {tip.legs.length === 1 ? 'seleção' : 'seleções'} · Prob. combinada{' '}
-              <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">
-                {tip.combinedProbabilityPct}%
-              </span>{' '}
-              · Odd justa estimada{' '}
-              <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">
-                {tip.fairOddEstimate.toFixed(2)}
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 tabular-nums flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+              <CompetitionFlag
+                leagueSlug={tip.leagueSlug || selectedLeague}
+                competition={tip.competition}
+                size="sm"
+              />
+              <span>
+                {tip.competition} · {tip.legs.length}{' '}
+                {tip.legs.length === 1 ? 'seleção' : 'seleções'} · Prob. combinada{' '}
+                <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">
+                  {tip.combinedProbabilityPct}%
+                </span>{' '}
+                · Odd justa estimada{' '}
+                <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">
+                  {tip.fairOddEstimate.toFixed(2)}
+                </span>
+                {updatedTime ? ` · Atualizado ${updatedTime}` : ''}
               </span>
-              {updatedTime ? ` · Atualizado ${updatedTime}` : ''}
             </p>
           ) : (
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-              {activeCompOption.label} · Combinada calculada pelo modelo Poisson com jogos de competições pelo mundo.
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+              <CompetitionFlag
+                leagueSlug={selectedLeague}
+                competition={activeCompOption.label}
+                size="sm"
+              />
+              <span>
+                {activeCompOption.label} · Combinada calculada pelo modelo Poisson com jogos de competições pelo mundo.
+              </span>
             </p>
           )}
         </div>
@@ -421,13 +431,19 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
             </div>
 
             <div className="relative w-full sm:flex-1 sm:min-w-[200px] xl:w-[230px] xl:flex-initial">
-              <Globe className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" />
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 flex items-center">
+                <CompetitionFlag
+                  leagueSlug={selectedLeague}
+                  competition={activeCompOption.label}
+                  size="sm"
+                />
+              </span>
               <select
                 aria-label="Selecionar competição para dicas quentes"
                 value={selectedLeague}
                 onChange={(e) => onChangeLeague(e.target.value)}
                 disabled={isLoading}
-                className="w-full min-h-[44px] pl-8 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-600/30 focus:border-emerald-700 dark:focus:border-emerald-500 transition-colors disabled:opacity-60"
+                className="w-full min-h-[44px] pl-9 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-600/30 focus:border-emerald-700 dark:focus:border-emerald-500 transition-colors disabled:opacity-60"
               >
                 <optgroup label="Destaques">
                   {groupedCompetitions.destaques.map((comp) => (
@@ -595,20 +611,51 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                 key={`${leg.homeTeam}-${leg.awayTeam}-${idx}`}
                 className="rounded-xl border border-slate-200/90 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 p-3.5 flex flex-col justify-between gap-2.5"
               >
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-                    <span className="font-medium truncate">
-                      Jogo {idx + 1}
-                      {isMultiLeagueTip && leg.competition ? ` · ${leg.competition}` : ''} ·{' '}
-                      {leg.dateLabel}
+                    <span className="inline-flex items-center gap-1.5 font-medium min-w-0 truncate">
+                      <CompetitionFlag
+                        leagueSlug={leg.leagueSlug || tip.leagueSlug}
+                        competition={leg.competition || tip.competition}
+                        size="sm"
+                      />
+                      <span className="truncate">
+                        Jogo {idx + 1}
+                        {leg.competition ? ` · ${leg.competition}` : ''} · {leg.dateLabel}
+                      </span>
                     </span>
                     <span className="font-mono tabular-nums shrink-0">
                       xG {leg.expectedGoalsHome.toFixed(1)}–{leg.expectedGoalsAway.toFixed(1)}
                     </span>
                   </div>
 
-                  <div className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-snug">
-                    {leg.homeTeam} × {leg.awayTeam}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <TeamCrest
+                        name={leg.homeTeam}
+                        shortCode={leg.homeShortCode}
+                        primaryColor={leg.homeColor || '#0F766E'}
+                        secondaryColor="#FFFFFF"
+                        logoUrl={leg.homeLogoUrl}
+                        size="xs"
+                      />
+                      <span className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                        {leg.homeTeam}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <TeamCrest
+                        name={leg.awayTeam}
+                        shortCode={leg.awayShortCode}
+                        primaryColor={leg.awayColor || '#1D4ED8'}
+                        secondaryColor="#FFFFFF"
+                        logoUrl={leg.awayLogoUrl}
+                        size="xs"
+                      />
+                      <span className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                        {leg.awayTeam}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="flex items-baseline justify-between gap-2 pt-0.5">

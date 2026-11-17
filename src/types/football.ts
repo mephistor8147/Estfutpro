@@ -88,6 +88,7 @@ export interface TeamIdentity {
   shortCode: string;
   primaryColor: string;
   secondaryColor: string;
+  logoUrl?: string;
 }
 
 export interface MatchAnalysisData {
@@ -162,6 +163,47 @@ export interface AnalysisResponsePayload {
   sources: GroundingSource[];
 }
 
+export type MatchLiveState = 'pre' | 'in' | 'post';
+
+export interface LiveMatchScore {
+  homeGoals: number;
+  awayGoals: number;
+  state: MatchLiveState;
+  clock?: string;
+  statusDetail: string;
+  updatedAt: string;
+  sourceLabel?: string;
+  eventId?: string;
+  leagueSlug?: string;
+}
+
+export interface LiveScoreQueryItem {
+  key: string;
+  eventId?: string;
+  leagueSlug?: string;
+  competition?: string;
+  homeTeam: string;
+  awayTeam: string;
+  marketLabel?: string;
+  dateHint?: string;
+}
+
+export interface LiveScoreMatchResult {
+  key: string;
+  found: boolean;
+  state: MatchLiveState;
+  completed: boolean;
+  homeGoals?: number;
+  awayGoals?: number;
+  clock?: string;
+  statusDetail: string;
+  eventId?: string;
+  leagueSlug?: string;
+  sourceLabel: string;
+  marketStatus?: MultipleLegStatus;
+  updatedAt: string;
+}
+
 export interface PredictionHistoryItem {
   id: string;
   createdAt: string;
@@ -177,6 +219,7 @@ export interface PredictionHistoryItem {
   mostLikelyScore: string;
   over25Pct: number;
   bttsPct: number;
+  liveScore?: LiveMatchScore;
   actualScore?: {
     homeGoals: number;
     awayGoals: number;
@@ -210,6 +253,13 @@ export interface AppSettings {
 export interface SuggestedFixture {
   homeTeam: string;
   awayTeam: string;
+  homeShortCode?: string;
+  awayShortCode?: string;
+  homeLogoUrl?: string;
+  awayLogoUrl?: string;
+  homeColor?: string;
+  awayColor?: string;
+  leagueSlug?: string;
   competition: string;
   dateLabel: string;
 }
@@ -225,6 +275,10 @@ export interface SerieAMultipleLeg {
   awayTeam: string;
   homeShortCode: string;
   awayShortCode: string;
+  homeLogoUrl?: string;
+  awayLogoUrl?: string;
+  homeColor?: string;
+  awayColor?: string;
   competition?: string;
   dateLabel: string;
   marketLabel: string;
@@ -250,6 +304,7 @@ export interface SerieAMultipleTip {
 export interface MultipleHistoryLeg extends SerieAMultipleLeg {
   odd: number;
   status: MultipleLegStatus;
+  liveScore?: LiveMatchScore;
   actualScore?: {
     homeGoals: number;
     awayGoals: number;
