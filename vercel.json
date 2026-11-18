@@ -12,6 +12,12 @@
     },
     "api/serie-a-multiple.ts": {
       "maxDuration": 25
+    },
+    "api/live-scores.ts": {
+      "maxDuration": 25
+    },
+    "api/parse-bet-image.ts": {
+      "maxDuration": 30
     }
   },
   "rewrites": [

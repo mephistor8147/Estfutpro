@@ -5,12 +5,14 @@ import {
   Clock,
   Edit3,
   Flame,
+  ImagePlus,
   Loader2,
   RefreshCw,
   Trash2,
   XCircle,
 } from 'lucide-react';
 import { formatBrlCurrency } from '../lib/shareMultipleImage.ts';
+import { BetSlipUploadModal } from './BetSlipUploadModal.tsx';
 import { CompetitionFlag } from './CompetitionFlag.tsx';
 import { TeamCrest } from './TeamCrest.tsx';
 import type {
@@ -39,6 +41,7 @@ interface HistoryViewProps {
   onResolveMultipleTip: (itemId: string, status: MultipleTipStatus) => void;
   onDeleteMultipleItem: (itemId: string) => void;
   onCheckMultipleResults: () => void;
+  onImportBetSlip: (item: MultipleHistoryItem) => void;
 }
 
 function getPredictedFavorite(item: PredictionHistoryItem): 'H' | 'D' | 'A' {
@@ -82,6 +85,23 @@ function getLiveLegPartialSignal(
   const h = normalizeTextSimple(leg.homeTeam);
   const a = normalizeTextSimple(leg.awayTeam);
 
+  if (
+    /(escanteio|corner|cartao|cartoes|card|chute|finalizac|impedimento|falta|handicap|asiatic)/.test(
+      m
+    )
+  ) {
+    return null;
+  }
+
+  const overMatch = m.match(/(?:mais de|over|\+)\s*([0-9]+(?:[.,]5)?)\s*gol/);
+  if (overMatch) {
+    const threshold = parseFloat(overMatch[1].replace(',', '.'));
+    if (Number.isFinite(threshold)) {
+      return total > threshold
+        ? { label: 'Parcial: batendo', positive: true }
+        : { label: 'Parcial: em aberto', positive: false };
+    }
+  }
   if (m.includes('mais de 1,5') || m.includes('mais de 1.5')) {
     return total >= 2
       ? { label: 'Parcial: batendo', positive: true }
@@ -92,24 +112,64 @@ function getLiveLegPartialSignal(
       ? { label: 'Parcial: batendo', positive: true }
       : { label: 'Parcial: em aberto', positive: false };
   }
-  if (m.includes('ambas marcam')) {
+  const underMatch = m.match(/(?:menos de|under)\s*([0-9]+(?:[.,]5)?)\s*gol/);
+  if (underMatch) {
+    const threshold = parseFloat(underMatch[1].replace(',', '.'));
+    if (Number.isFinite(threshold)) {
+      return total < threshold
+        ? { label: 'Parcial: dentro', positive: true }
+        : { label: 'Parcial: fora', positive: false };
+    }
+  }
+  if (m.includes('ambas marcam') || m.includes('ambos marcam') || m.includes('btts')) {
+    if (m.includes('nao') || m.includes('no')) {
+      return hGoals === 0 || aGoals === 0
+        ? { label: 'Parcial: dentro', positive: true }
+        : { label: 'Parcial: fora', positive: false };
+    }
     return hGoals >= 1 && aGoals >= 1
       ? { label: 'Parcial: batendo', positive: true }
       : { label: 'Parcial: em aberto', positive: false };
   }
-  if (m.includes('dupla chance')) {
-    if (h && m.includes(h)) {
+  if (
+    m.includes('dupla chance') ||
+    m.includes('hipotese dupla') ||
+    m.includes('ou empate') ||
+    /\b(1x|x2|12)\b/.test(m)
+  ) {
+    if (/\b12\b/.test(m)) {
+      return hGoals !== aGoals
+        ? { label: 'Parcial: dentro', positive: true }
+        : { label: 'Parcial: empatado', positive: false };
+    }
+    if ((h && m.includes(h)) || /\b1x\b/.test(m)) {
       return hGoals >= aGoals
         ? { label: 'Parcial: dentro', positive: true }
         : { label: 'Parcial: atrás', positive: false };
     }
-    if (a && m.includes(a)) {
+    if ((a && m.includes(a)) || /\bx2\b/.test(m)) {
       return aGoals >= hGoals
         ? { label: 'Parcial: dentro', positive: true }
         : { label: 'Parcial: atrás', positive: false };
     }
   }
-  if (m.startsWith('vitoria')) {
+  if (
+    m === 'empate' ||
+    m === 'x' ||
+    m.includes('resultado final: empate') ||
+    m.includes('resultado: empate')
+  ) {
+    return hGoals === aGoals
+      ? { label: 'Parcial: batendo', positive: true }
+      : { label: 'Parcial: atrás', positive: false };
+  }
+  if (
+    m.startsWith('vitoria') ||
+    m.includes('resultado final') ||
+    m.includes('vence') ||
+    m === h ||
+    m === a
+  ) {
     if (h && m.includes(h)) {
       return hGoals > aGoals
         ? { label: 'Parcial: à frente', positive: true }
@@ -138,11 +198,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   onResolveMultipleTip,
   onDeleteMultipleItem,
   onCheckMultipleResults,
+  onImportBetSlip,
 }) => {
   const [section, setSection] = useState<'multiple' | 'analysis'>(initialSection);
   const [multipleFilter, setMultipleFilter] = useState<
     'all' | 'won' | 'lost' | 'pending'
   >('all');
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [homeInput, setHomeInput] = useState<string>('1');
@@ -245,40 +307,51 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Sub-navigation Switcher: Dicas quentes vs Análises 1X2 */}
-      <div
-        role="tablist"
-        aria-label="Seções do histórico"
-        className="grid grid-cols-2 sm:inline-flex w-full sm:w-auto items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1 gap-1"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={section === 'multiple'}
-          onClick={() => setSection('multiple')}
-          className={`min-h-[44px] px-2.5 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap tabular-nums ${
-            section === 'multiple'
-              ? 'bg-emerald-700 dark:bg-emerald-600 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-          }`}
+      {/* Sub-navigation Switcher + Primary Import CTA */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        <div
+          role="tablist"
+          aria-label="Seções do histórico"
+          className="grid grid-cols-2 sm:inline-flex w-full sm:w-auto items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1 gap-1"
         >
-          <Flame className="w-4 h-4 shrink-0" />
-          <span>Dicas quentes ({multipleHistory.length})</span>
-        </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={section === 'multiple'}
+            onClick={() => setSection('multiple')}
+            className={`min-h-[44px] px-2.5 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap tabular-nums ${
+              section === 'multiple'
+                ? 'bg-emerald-700 dark:bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Flame className="w-4 h-4 shrink-0" />
+            <span>Dicas e apostas ({multipleHistory.length})</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={section === 'analysis'}
+            onClick={() => setSection('analysis')}
+            className={`min-h-[44px] px-2.5 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap tabular-nums ${
+              section === 'analysis'
+                ? 'bg-emerald-700 dark:bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4 shrink-0" />
+            <span>Análises 1X2 ({history.length})</span>
+          </button>
+        </div>
 
         <button
           type="button"
-          role="tab"
-          aria-selected={section === 'analysis'}
-          onClick={() => setSection('analysis')}
-          className={`min-h-[44px] px-2.5 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap tabular-nums ${
-            section === 'analysis'
-              ? 'bg-emerald-700 dark:bg-emerald-600 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-          }`}
+          onClick={() => setIsUploadModalOpen(true)}
+          className="w-full sm:w-auto min-h-[44px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap shrink-0"
         >
-          <BarChart3 className="w-4 h-4 shrink-0" />
-          <span>Análises 1X2 ({history.length})</span>
+          <ImagePlus className="w-4 h-4 shrink-0" />
+          <span>Importar bilhete</span>
         </button>
       </div>
 
@@ -292,7 +365,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   Histórico de acertos e perdas
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                  Acompanhe placares ao vivo da web, acertos, perdas e desempenho simulado das múltiplas.
+                  Acompanhe placares ao vivo da web, acertos, perdas e bilhetes importados por imagem.
                 </p>
                 {(liveMultipleGamesCount > 0 || formattedLiveSync) && (
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
@@ -346,7 +419,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
               <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700/70 p-3">
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Dicas salvas
+                  Bilhetes salvos
                 </div>
                 <div className="font-display text-2xl font-bold text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">
                   {multipleHistory.length}
@@ -382,7 +455,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
               <div className="col-span-2 sm:col-span-1 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700/70 p-3">
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Saldo simulado
+                  Saldo líquido
                 </div>
                 <div
                   className={`font-display text-2xl font-bold tabular-nums mt-0.5 ${
@@ -429,19 +502,31 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             )}
           </section>
 
-          {/* Saved Hot Tips List */}
+          {/* Saved Hot Tips & Imported Bets List */}
           {filteredMultiples.length === 0 ? (
-            <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-6 sm:p-8 text-center">
-              <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                {multipleHistory.length === 0
-                  ? 'Nenhuma dica quente salva ainda'
-                  : 'Nenhuma múltipla neste filtro'}
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
-                {multipleHistory.length === 0
-                  ? 'No menu Dicas quentes, toque em Salvar dica para registrar a múltipla e acompanhar acertos e perdas.'
-                  : 'Selecione outro filtro acima para visualizar as demais múltiplas salvas.'}
-              </p>
+            <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-6 sm:p-8 text-center space-y-3">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                  {multipleHistory.length === 0
+                    ? 'Nenhuma aposta ou dica salva ainda'
+                    : 'Nenhuma aposta neste filtro'}
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
+                  {multipleHistory.length === 0
+                    ? 'Salve uma múltipla em Dicas quentes ou carregue um print do seu bilhete para acompanhar placares ao vivo, acertos e perdas.'
+                    : 'Selecione outro filtro acima para visualizar as demais apostas salvas.'}
+                </p>
+              </div>
+              {multipleHistory.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => setIsUploadModalOpen(true)}
+                  className="min-h-[44px] px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
+                >
+                  <ImagePlus className="w-4 h-4 shrink-0" />
+                  <span>Carregar imagem de aposta</span>
+                </button>
+              )}
             </section>
           ) : (
             <div className="space-y-3.5">
@@ -479,14 +564,33 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                           </div>
                         </div>
                         <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
-                          {item.legs.length} {item.legs.length === 1 ? 'jogo' : 'jogos'} · Prob.{' '}
-                          <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
-                            {item.combinedProbabilityPct}%
-                          </span>{' '}
+                          {item.legs.length} {item.legs.length === 1 ? 'jogo' : 'jogos'}
+                          {item.combinedProbabilityPct > 0 && (
+                            <>
+                              {' '}
+                              · Prob.{' '}
+                              <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
+                                {item.combinedProbabilityPct}%
+                              </span>
+                            </>
+                          )}{' '}
                           · Odd total{' '}
                           <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">
                             {item.totalOdd.toFixed(2)}
-                          </span>{' '}
+                          </span>
+                          {item.source === 'image' && (
+                            <>
+                              {' '}
+                              ·{' '}
+                              {item.bookmaker &&
+                              !item.competition
+                                .toLowerCase()
+                                .includes(item.bookmaker.toLowerCase())
+                                ? `${item.bookmaker} · `
+                                : ''}
+                              Importada por imagem
+                            </>
+                          )}{' '}
                           · Salva em {dateText}
                         </div>
                       </div>
@@ -523,7 +627,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     <div className="grid grid-cols-3 gap-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/70 dark:border-slate-800 p-3 text-xs tabular-nums">
                       <div>
                         <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                          Valor simulado
+                          {item.source === 'image' ? 'Valor apostado' : 'Valor simulado'}
                         </div>
                         <div className="font-mono font-bold text-slate-900 dark:text-slate-100 mt-0.5">
                           {formatBrlCurrency(item.stake)}
@@ -694,7 +798,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
                               <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs tabular-nums">
                                 <span className="font-medium text-emerald-700 dark:text-emerald-400">
-                                  {leg.marketLabel} · Odd {leg.odd.toFixed(2)} ({leg.probabilityPct}%)
+                                  {leg.marketLabel}
+                                  {leg.odd > 1 ? ` · Odd ${leg.odd.toFixed(2)}` : ''}
+                                  {leg.probabilityPct > 0 ? ` (${leg.probabilityPct}%)` : ''}
                                 </span>
                                 {liveSignal && (
                                   <span
@@ -1216,6 +1322,16 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           )}
         </>
       )}
+
+      <BetSlipUploadModal
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        onSaveBetSlip={(item) => {
+          onImportBetSlip(item);
+          setSection('multiple');
+          setMultipleFilter('all');
+        }}
+      />
     </div>
   );
 };

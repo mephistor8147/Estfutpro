@@ -904,6 +904,23 @@ export default function App() {
     });
   }, [refreshHistoryLiveScores]);
 
+  const handleImportBetSlip = useCallback(
+    (item: MultipleHistoryItem) => {
+      const next = [item, ...multipleHistoryRef.current];
+      multipleHistoryRef.current = next;
+      setMultipleHistory(next);
+      setMultipleCheckMessage(
+        'Bilhete importado no histórico. Buscando placares ao vivo na web...'
+      );
+      refreshHistoryLiveScores({
+        forceRefresh: false,
+        allowWebFallback: false,
+        silent: false,
+      });
+    },
+    [refreshHistoryLiveScores]
+  );
+
   const navItems: {
     id: AppTab;
     label: string;
@@ -1410,6 +1427,7 @@ export default function App() {
             onResolveMultipleTip={handleResolveMultipleTip}
             onDeleteMultipleItem={handleDeleteMultipleItem}
             onCheckMultipleResults={handleCheckMultipleResults}
+            onImportBetSlip={handleImportBetSlip}
           />
         )}
 

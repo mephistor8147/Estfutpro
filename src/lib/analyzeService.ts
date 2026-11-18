@@ -8,6 +8,10 @@ import type {
   MatchAnalysisData,
   MatchLiveState,
   MultipleDayFilter,
+  MultipleLegStatus,
+  MultipleTipStatus,
+  ParsedBetSlipLeg,
+  ParsedBetSlipResponse,
   SerieAMultipleTip,
   SuggestedFixture,
 } from '../types/football.js';
@@ -15,6 +19,7 @@ import {
   analyzeMatchViaEspn,
   buildMultipleTipViaEspn,
   checkMultipleLegsResultsViaEspn,
+  enrichParsedBetLegsViaEspn,
   evaluateMultipleMarketOutcome,
   fetchEspnLiveFixtures,
   fetchLiveScoresViaEspn,
@@ -958,3 +963,338 @@ export async function getLiveScoresService(
       }
   );
 }
+
+const ALLOWED_IMAGE_MIMES = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+]);
+
+const betSlipExtractionSchema = {
+  type: Type.OBJECT,
+  properties: {
+    isBetSlip: {
+      type: Type.BOOLEAN,
+      description:
+        'true se a imagem contiver um bilhete, comprovante, cupom, print de aposta ou dica de jogos de futebol; false caso contrário.',
+    },
+    bookmaker: {
+      type: Type.STRING,
+      description:
+        'Nome da casa de apostas visível (ex: Bet365, Betano, Superbet, KTO, Sportingbet, Betnacional, Novibet, Pixbet) ou string vazia.',
+    },
+    title: {
+      type: Type.STRING,
+      description:
+        'Título curto para o bilhete em português (ex: "Múltipla Betano", "Aposta simples Bet365" ou nome do campeonato).',
+    },
+    stake: {
+      type: Type.NUMBER,
+      description: 'Valor apostado em reais (apenas número, ex: 50 ou 25.5). Use 0 se não estiver visível.',
+    },
+    totalOdd: {
+      type: Type.NUMBER,
+      description:
+        'Cotação/odd total do bilhete (apenas número decimal, ex: 4.25). Use 0 se não estiver visível.',
+    },
+    potentialReturn: {
+      type: Type.NUMBER,
+      description:
+        'Retorno potencial ou valor ganho em reais (apenas número). Use 0 se não estiver visível.',
+    },
+    status: {
+      type: Type.STRING,
+      description:
+        'Status geral do bilhete: "won" se ganho/green/vencido, "lost" se perdido/red, ou "pending" se em aberto/ao vivo/não resolvido.',
+    },
+    notes: {
+      type: Type.STRING,
+      description:
+        'Observação curta em português sobre a leitura ou motivo caso isBetSlip seja false.',
+    },
+    legs: {
+      type: Type.ARRAY,
+      description: 'Lista de cada jogo / seleção presente na aposta.',
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          homeTeam: {
+            type: Type.STRING,
+            description: 'Nome oficial ou principal do time mandante (primeiro time listado).',
+          },
+          awayTeam: {
+            type: Type.STRING,
+            description: 'Nome oficial ou principal do time visitante (segundo time listado).',
+          },
+          competition: {
+            type: Type.STRING,
+            description:
+              'Nome do campeonato/liga se visível ou reconhecível (ex: "Brasileirão Série A", "Premier League", "Champions League", ou "Futebol").',
+          },
+          dateLabel: {
+            type: Type.STRING,
+            description:
+              'Data/horário do jogo conforme exibido no bilhete (ex: "Hoje · 21:30", "17/11 · 19:00", ou "Agendado").',
+          },
+          marketLabel: {
+            type: Type.STRING,
+            description:
+              'Palpite/mercado em português padronizado sempre que aplicável: "Vitória <Time>", "Empate", "Dupla chance: <Time> ou Empate", "Mais de 1,5 gols", "Mais de 2,5 gols", "Menos de 2,5 gols", "Ambas marcam: Sim", "Ambas marcam: Não", ou o texto fiel do mercado se for outro (ex: escanteios/cartões).',
+          },
+          odd: {
+            type: Type.NUMBER,
+            description: 'Odd individual da seleção (ex: 1.75). Use 0 se não estiver visível.',
+          },
+          status: {
+            type: Type.STRING,
+            description:
+              'Status individual do jogo: "won" se acertou/verde/check, "lost" se errou/vermelho/X, ou "pending" se ainda não encerrado.',
+          },
+        },
+        required: ['homeTeam', 'awayTeam', 'marketLabel'],
+      },
+    },
+  },
+  required: ['isBetSlip', 'legs'],
+};
+
+function sanitizeLegStatus(raw: unknown): MultipleLegStatus {
+  const s = String(raw || '').toLowerCase().trim();
+  if (s === 'won' || s === 'win' || s === 'green' || s === 'ganha' || s === 'acerto') {
+    return 'won';
+  }
+  if (s === 'lost' || s === 'loss' || s === 'red' || s === 'perdida' || s === 'perda') {
+    return 'lost';
+  }
+  return 'pending';
+}
+
+function sanitizePositiveNumber(raw: unknown, fallback = 0): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Number(n.toFixed(2));
+}
+
+function makeShortCodeFromTeam(name: string): string {
+  const clean = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]/g, '')
+    .toUpperCase();
+  return (clean || 'TIM').slice(0, 3);
+}
+
+export async function parseBetSlipImageService(params: {
+  imageBase64: string;
+  mimeType?: string;
+}): Promise<ParsedBetSlipResponse> {
+  const rawInput = String(params.imageBase64 || '').trim();
+  if (!rawInput) {
+    throw new Error('IMAGE_REQUIRED');
+  }
+
+  let base64 = rawInput;
+  let mimeType = String(params.mimeType || 'image/jpeg').toLowerCase().trim();
+  const dataUrlMatch = rawInput.match(/^data:([^;]+);base64,(.+)$/);
+  if (dataUrlMatch) {
+    mimeType = dataUrlMatch[1].toLowerCase().trim();
+    base64 = dataUrlMatch[2].trim();
+  }
+
+  if (mimeType === 'image/jpg') {
+    mimeType = 'image/jpeg';
+  }
+  if (!ALLOWED_IMAGE_MIMES.has(mimeType)) {
+    throw new Error('INVALID_IMAGE_TYPE');
+  }
+
+  // ~7.5MB decoded safety limit
+  if (base64.length > 10_500_000) {
+    throw new Error('IMAGE_TOO_LARGE');
+  }
+
+  const ai = getAiClient();
+
+  const prompt = `Você é um especialista em leitura de bilhetes e comprovantes de apostas esportivas de futebol (Bet365, Betano, Superbet, KTO, Sportingbet, Betnacional, Novibet, Pixbet, EstrelaBet, prints de dicas/múltiplas, etc.).
+Analise cuidadosamente a imagem anexada e extraia TODAS as partidas de futebol, mercados/palpites, odds, valor apostado (stake), retorno potencial e status (ganha/perdida/pendente) que estejam realmente visíveis na imagem.
+
+REGRAS ESTRITAS:
+1. NUNCA invente jogos, times, odds ou valores que não apareçam na imagem.
+2. Se a imagem NÃO contiver uma aposta ou lista de jogos de futebol, retorne "isBetSlip": false e "legs": [].
+3. Padronize o campo "marketLabel" em português claro do Brasil:
+   - Vitória do time: "Vitória <Nome do Time>"
+   - Empate seco: "Empate"
+   - Dupla chance / Hipótese dupla: "Dupla chance: <Nome do Time> ou Empate"
+   - Gols: "Mais de 1,5 gols", "Mais de 2,5 gols", "Menos de 2,5 gols", etc.
+   - Ambas marcam: "Ambas marcam: Sim" ou "Ambas marcam: Não"
+   - Outros mercados (escanteios, cartões, handicap, chutes, jogadores): mantenha a descrição fiel e clara em português.
+4. Converta valores monetários em formato brasileiro (ex: "R$ 50,00" -> 50; "R$ 1.250,40" -> 1250.4).
+5. Se a aposta tiver apenas 1 jogo e a odd individual não aparecer separada da odd total, use a odd total nesse jogo.
+6. Identifique ícones ou rótulos visuais de resultado por jogo (check verde / "Ganha" => "won"; X vermelho / "Perdida" => "lost"; relógio / "Em aberto" / ao vivo => "pending").`;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-4-hydrogen',
+    contents: {
+      parts: [
+        {
+          inlineData: {
+            mimeType,
+            data: base64,
+          },
+        },
+        {
+          text: prompt,
+        },
+      ],
+    },
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: betSlipExtractionSchema,
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+    },
+  });
+
+  const rawText = (response.text ?? '{}').trim();
+  let parsed: any;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch {
+    parsed = extractJsonBlock<any>(rawText);
+  }
+
+  const rawLegs: any[] = Array.isArray(parsed?.legs) ? parsed.legs : [];
+  const validLegsRaw: ParsedBetSlipLeg[] = rawLegs
+    .filter(
+      (leg) =>
+        typeof leg?.homeTeam === 'string' &&
+        leg.homeTeam.trim().length > 0 &&
+        typeof leg?.awayTeam === 'string' &&
+        leg.awayTeam.trim().length > 0
+    )
+    .slice(0, 15)
+    .map((leg) => {
+      const homeTeam = String(leg.homeTeam).trim();
+      const awayTeam = String(leg.awayTeam).trim();
+      const competition = String(leg.competition || '').trim() || 'Futebol';
+      const dateLabel = String(leg.dateLabel || '').trim() || 'Importado';
+      const marketLabel =
+        String(leg.marketLabel || '').trim() || `Vitória ${homeTeam}`;
+      const odd = sanitizePositiveNumber(leg.odd, 0);
+      return {
+        homeTeam,
+        awayTeam,
+        homeShortCode: makeShortCodeFromTeam(homeTeam),
+        awayShortCode: makeShortCodeFromTeam(awayTeam),
+        competition,
+        dateLabel,
+        marketLabel,
+        odd,
+        status: sanitizeLegStatus(leg.status),
+      };
+    });
+
+  const isBetSlip = Boolean(parsed?.isBetSlip) && validLegsRaw.length > 0;
+  if (!isBetSlip) {
+    return {
+      isBetSlip: false,
+      title: 'Bilhete importado',
+      competition: 'Bilhete importado',
+      leagueSlug: 'world',
+      stake: 0,
+      totalOdd: 1,
+      potentialReturn: 0,
+      status: 'pending',
+      legs: [],
+      notes:
+        String(parsed?.notes || '').trim() ||
+        'Não foi possível identificar jogos de futebol nesta imagem. Envie um print nítido do bilhete de aposta ou preencha os jogos manualmente.',
+    };
+  }
+
+  const bookmaker = String(parsed?.bookmaker || '').trim() || undefined;
+  let stake = sanitizePositiveNumber(parsed?.stake, 0);
+  let totalOdd = sanitizePositiveNumber(parsed?.totalOdd, 0);
+  let potentialReturn = sanitizePositiveNumber(parsed?.potentialReturn, 0);
+
+  // Fill single-leg odd from totalOdd when only total odd was shown
+  if (validLegsRaw.length === 1 && validLegsRaw[0].odd <= 0 && totalOdd >= 1.01) {
+    validLegsRaw[0].odd = totalOdd;
+  }
+
+  // Fill missing leg odds with neutral 1.00 or derive totalOdd from legs
+  const productOfKnownOdds = validLegsRaw.reduce(
+    (acc, leg) => (leg.odd >= 1.01 ? acc * leg.odd : acc),
+    1
+  );
+  if (totalOdd < 1.01) {
+    if (productOfKnownOdds >= 1.01) {
+      totalOdd = Number(productOfKnownOdds.toFixed(2));
+    } else if (stake > 0 && potentialReturn > stake) {
+      totalOdd = Number((potentialReturn / stake).toFixed(2));
+    } else {
+      totalOdd = 1;
+    }
+  }
+
+  if (stake <= 0 && potentialReturn > 0 && totalOdd > 1) {
+    stake = Number((potentialReturn / totalOdd).toFixed(2));
+  }
+  if (potentialReturn <= 0 && stake > 0 && totalOdd >= 1) {
+    potentialReturn = Number((stake * totalOdd).toFixed(2));
+  }
+
+  // Enrich legs with official ESPN club crests, colors, and league slugs
+  const enrichedLegs = await enrichParsedBetLegsViaEspn(validLegsRaw);
+
+  // Determine overall status (respecting leg statuses if clear)
+  let status: MultipleTipStatus = sanitizeLegStatus(parsed?.status);
+  if (status === 'pending') {
+    if (enrichedLegs.some((l) => l.status === 'lost')) status = 'lost';
+    else if (enrichedLegs.every((l) => l.status === 'won')) status = 'won';
+  } else if (status === 'won' && enrichedLegs.every((l) => l.status === 'pending')) {
+    for (const l of enrichedLegs) l.status = 'won';
+  }
+
+  // Pick a clean slip header competition/title
+  const distinctComps = Array.from(
+    new Set(
+      enrichedLegs
+        .map((l) => l.competition)
+        .filter((c) => c && c.toLowerCase() !== 'futebol')
+    )
+  );
+  const distinctSlugs = Array.from(
+    new Set(enrichedLegs.map((l) => l.leagueSlug).filter((s): s is string => Boolean(s)))
+  );
+
+  const rawTitle = String(parsed?.title || '').trim();
+  const competitionLabel =
+    rawTitle ||
+    (distinctComps.length === 1
+      ? distinctComps[0]
+      : bookmaker
+        ? `${enrichedLegs.length === 1 ? 'Aposta simples' : 'Múltipla'} · ${bookmaker}`
+        : enrichedLegs.length === 1
+          ? 'Aposta simples importada'
+          : 'Múltipla importada');
+
+  const leagueSlug = distinctSlugs.length === 1 ? distinctSlugs[0] : 'world';
+
+  return {
+    isBetSlip: true,
+    bookmaker,
+    title: competitionLabel,
+    competition: competitionLabel,
+    leagueSlug,
+    stake,
+    totalOdd,
+    potentialReturn,
+    status,
+    legs: enrichedLegs,
+    notes: String(parsed?.notes || '').trim() || undefined,
+  };
+}
+

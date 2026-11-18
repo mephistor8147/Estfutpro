@@ -326,4 +326,38 @@ export interface MultipleHistoryItem {
   potentialReturn: number;
   status: MultipleTipStatus;
   resolvedAt?: string;
+  source?: 'tip' | 'image';
+  bookmaker?: string;
+  notes?: string;
+}
+
+export interface ParsedBetSlipLeg {
+  homeTeam: string;
+  awayTeam: string;
+  homeShortCode: string;
+  awayShortCode: string;
+  homeLogoUrl?: string;
+  awayLogoUrl?: string;
+  homeColor?: string;
+  awayColor?: string;
+  competition: string;
+  leagueSlug?: string;
+  dateLabel: string;
+  marketLabel: string;
+  odd: number;
+  status: MultipleLegStatus;
+}
+
+export interface ParsedBetSlipResponse {
+  isBetSlip: boolean;
+  bookmaker?: string;
+  title: string;
+  competition: string;
+  leagueSlug: string;
+  stake: number;
+  totalOdd: number;
+  potentialReturn: number;
+  status: MultipleTipStatus;
+  legs: ParsedBetSlipLeg[];
+  notes?: string;
 }

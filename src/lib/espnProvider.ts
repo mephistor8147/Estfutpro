@@ -10,6 +10,7 @@ import type {
   MatchOutcome,
   MultipleDayFilter,
   MultipleLegStatus,
+  ParsedBetSlipLeg,
   RecentMatchItem,
   SerieAMultipleLeg,
   SerieAMultipleTip,
@@ -1830,24 +1831,83 @@ export function evaluateMultipleMarketOutcome(
   const a = normalizeTeamText(awayTeam);
   const total = homeGoals + awayGoals;
 
+  // Skip non-goal specialized markets (corners, cards, shots, player props)
+  if (
+    /(escanteio|corner|cartao|cartoes|card|chute|finalizac|impedimento|falta|handicap|asiatic)/.test(
+      m
+    )
+  ) {
+    return 'pending';
+  }
+
+  // Over / Mais de X.5 gols
+  const overMatch = m.match(/(?:mais de|over|\+)\s*([0-9]+(?:[.,]5)?)\s*gol/);
+  if (overMatch) {
+    const threshold = parseFloat(overMatch[1].replace(',', '.'));
+    if (Number.isFinite(threshold)) {
+      return total > threshold ? 'won' : 'lost';
+    }
+  }
   if (m.includes('mais de 1,5') || m.includes('mais de 1.5')) {
     return total >= 2 ? 'won' : 'lost';
   }
   if (m.includes('mais de 2,5') || m.includes('mais de 2.5')) {
     return total >= 3 ? 'won' : 'lost';
   }
-  if (m.includes('ambas marcam')) {
+
+  // Under / Menos de X.5 gols
+  const underMatch = m.match(/(?:menos de|under)\s*([0-9]+(?:[.,]5)?)\s*gol/);
+  if (underMatch) {
+    const threshold = parseFloat(underMatch[1].replace(',', '.'));
+    if (Number.isFinite(threshold)) {
+      return total < threshold ? 'won' : 'lost';
+    }
+  }
+
+  // Ambas marcam (BTTS)
+  if (m.includes('ambas marcam') || m.includes('ambos marcam') || m.includes('btts')) {
+    if (m.includes('nao') || m.includes('no')) {
+      return homeGoals === 0 || awayGoals === 0 ? 'won' : 'lost';
+    }
     return homeGoals >= 1 && awayGoals >= 1 ? 'won' : 'lost';
   }
-  if (m.includes('dupla chance')) {
-    if (h && m.includes(h)) {
+
+  // Dupla chance (1X / X2 / 12)
+  if (
+    m.includes('dupla chance') ||
+    m.includes('hipotese dupla') ||
+    m.includes('ou empate') ||
+    /\b(1x|x2|12)\b/.test(m)
+  ) {
+    if (/\b12\b/.test(m)) {
+      return homeGoals !== awayGoals ? 'won' : 'lost';
+    }
+    if ((h && m.includes(h)) || /\b1x\b/.test(m)) {
       return homeGoals >= awayGoals ? 'won' : 'lost';
     }
-    if (a && m.includes(a)) {
+    if ((a && m.includes(a)) || /\bx2\b/.test(m)) {
       return awayGoals >= homeGoals ? 'won' : 'lost';
     }
   }
-  if (m.startsWith('vitoria')) {
+
+  // Empate (1X2 Draw)
+  if (
+    m === 'empate' ||
+    m === 'x' ||
+    m.includes('resultado final: empate') ||
+    m.includes('resultado: empate')
+  ) {
+    return homeGoals === awayGoals ? 'won' : 'lost';
+  }
+
+  // Vitória / Resultado final (1X2 Team Win)
+  if (
+    m.startsWith('vitoria') ||
+    m.includes('resultado final') ||
+    m.includes('vence') ||
+    m === h ||
+    m === a
+  ) {
     if (h && m.includes(h)) {
       return homeGoals > awayGoals ? 'won' : 'lost';
     }
@@ -1855,6 +1915,7 @@ export function evaluateMultipleMarketOutcome(
       return awayGoals > homeGoals ? 'won' : 'lost';
     }
   }
+
   return 'pending';
 }
 
@@ -2529,3 +2590,78 @@ export async function checkMultipleLegsResultsViaEspn(
     };
   });
 }
+
+function makeShortCodeFallback(name: string): string {
+  const letters = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]/g, '')
+    .toUpperCase();
+  return (letters || 'TIM').slice(0, 3);
+}
+
+/**
+ * Enriches bet slip legs extracted from an image with official ESPN club crests,
+ * short codes, club colors, and normalized competition slugs.
+ */
+export async function enrichParsedBetLegsViaEspn(
+  legs: ParsedBetSlipLeg[]
+): Promise<ParsedBetSlipLeg[]> {
+  if (!Array.isArray(legs) || legs.length === 0) return [];
+
+  const bounded = legs.slice(0, 15);
+  const uniqueTeamQueries = new Map<string, { name: string; preferredSlug: string | null }>();
+
+  for (const leg of bounded) {
+    const preferredSlug = leg.leagueSlug || resolveLeagueSlug(leg.competition || '');
+    const hKey = leg.homeTeam.trim().toLowerCase();
+    const aKey = leg.awayTeam.trim().toLowerCase();
+    if (hKey && !uniqueTeamQueries.has(hKey)) {
+      uniqueTeamQueries.set(hKey, { name: leg.homeTeam.trim(), preferredSlug });
+    }
+    if (aKey && !uniqueTeamQueries.has(aKey)) {
+      uniqueTeamQueries.set(aKey, { name: leg.awayTeam.trim(), preferredSlug });
+    }
+  }
+
+  const teamCache = new Map<string, EspnSearchTeam | null>();
+  await Promise.all(
+    Array.from(uniqueTeamQueries.entries()).map(async ([key, q]) => {
+      try {
+        const found = await searchEspnTeam(q.name, q.preferredSlug);
+        teamCache.set(key, found);
+      } catch {
+        teamCache.set(key, null);
+      }
+    })
+  );
+
+  return bounded.map((leg) => {
+    const hInfo = teamCache.get(leg.homeTeam.trim().toLowerCase());
+    const aInfo = teamCache.get(leg.awayTeam.trim().toLowerCase());
+    const resolvedSlug =
+      leg.leagueSlug ||
+      resolveLeagueSlug(leg.competition || '') ||
+      (hInfo?.defaultLeagueSlug && hInfo.defaultLeagueSlug === aInfo?.defaultLeagueSlug
+        ? hInfo.defaultLeagueSlug
+        : hInfo?.defaultLeagueSlug || aInfo?.defaultLeagueSlug || undefined);
+
+    return {
+      ...leg,
+      homeShortCode:
+        hInfo?.abbreviation ||
+        leg.homeShortCode ||
+        makeShortCodeFallback(leg.homeTeam),
+      awayShortCode:
+        aInfo?.abbreviation ||
+        leg.awayShortCode ||
+        makeShortCodeFallback(leg.awayTeam),
+      homeLogoUrl: hInfo?.logoUrl || leg.homeLogoUrl,
+      awayLogoUrl: aInfo?.logoUrl || leg.awayLogoUrl,
+      homeColor: hInfo?.color || leg.homeColor || '#0F766E',
+      awayColor: aInfo?.color || leg.awayColor || '#1D4ED8',
+      leagueSlug: resolvedSlug,
+    };
+  });
+}
+

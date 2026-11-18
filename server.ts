@@ -9,6 +9,7 @@ import {
   getFixturesService,
   getLiveScoresService,
   getSerieAMultipleService,
+  parseBetSlipImageService,
   resolveApiError,
   resolveGeminiApiKey,
 } from './src/lib/analyzeService.js';
@@ -22,7 +23,7 @@ const PORT = Number(process.env.PORT || 3000);
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '10mb' }));
 
   app.get('/api/health', (_req, res) => {
     res.json({
@@ -182,6 +183,44 @@ async function startServer() {
         'Não foi possível buscar os placares ao vivo na web no momento.'
       );
       console.error('Error fetching live scores:', error?.message || error);
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.post('/api/parse-bet-image', async (req, res) => {
+    try {
+      const imageBase64 = String(req.body?.imageBase64 || '').trim();
+      const mimeType =
+        typeof req.body?.mimeType === 'string' ? req.body.mimeType : undefined;
+
+      if (!imageBase64) {
+        res.status(400).json({ error: 'Envie uma imagem do bilhete de aposta.' });
+        return;
+      }
+
+      const parsed = await parseBetSlipImageService({ imageBase64, mimeType });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(parsed);
+    } catch (error: any) {
+      if (error?.message === 'INVALID_IMAGE_TYPE') {
+        res.status(400).json({
+          error: 'Formato de imagem não suportado. Use PNG, JPG ou WebP.',
+        });
+        return;
+      }
+      if (error?.message === 'IMAGE_TOO_LARGE') {
+        res.status(413).json({
+          error: 'Imagem muito grande. Envie um arquivo menor ou print recortado.',
+        });
+        return;
+      }
+      const { status, message } = resolveApiError(
+        error,
+        'Não foi possível ler os dados do bilhete na imagem agora. Tente novamente ou preencha manualmente.'
+      );
+      if (status !== 429) {
+        console.error('Error parsing bet slip image:', error?.message || error);
+      }
       res.status(status).json({ error: message });
     }
   });
