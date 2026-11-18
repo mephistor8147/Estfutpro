@@ -14,10 +14,12 @@ import type {
   ParsedBetSlipResponse,
   SerieAMultipleTip,
   SuggestedFixture,
+  SuperCombinedTip,
 } from '../types/football.js';
 import {
   analyzeMatchViaEspn,
   buildMultipleTipViaEspn,
+  buildSuperCombinedTipViaEspn,
   checkMultipleLegsResultsViaEspn,
   enrichParsedBetLegsViaEspn,
   evaluateMultipleMarketOutcome,
@@ -48,6 +50,8 @@ const multipleCache = new Map<
   string,
   { tip: SerieAMultipleTip; expiresAt: number }
 >();
+
+let superCombinedCache: { tip: SuperCombinedTip; expiresAt: number } | null = null;
 
 const liveScoreCache = new Map<
   string,
@@ -754,6 +758,26 @@ export async function getSerieAMultipleService(
     tip,
     expiresAt: Date.now() + MULTIPLE_TTL_MS,
   });
+
+  return tip;
+}
+
+export async function getSuperCombinedTipService(
+  forceRefresh = false
+): Promise<SuperCombinedTip> {
+  if (!forceRefresh && superCombinedCache && superCombinedCache.expiresAt > Date.now()) {
+    return superCombinedCache.tip;
+  }
+
+  const tip = await buildSuperCombinedTipViaEspn();
+  if (!tip || (tip.multiMatchLegs.length === 0 && tip.sameGameCombos.length === 0)) {
+    throw new Error('NO_SUPER_COMBINED_MATCHES');
+  }
+
+  superCombinedCache = {
+    tip,
+    expiresAt: Date.now() + MULTIPLE_TTL_MS,
+  };
 
   return tip;
 }

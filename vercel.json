@@ -18,6 +18,9 @@
     },
     "api/parse-bet-image.ts": {
       "maxDuration": 30
+    },
+    "api/super-combined-tip.ts": {
+      "maxDuration": 25
     }
   },
   "rewrites": [

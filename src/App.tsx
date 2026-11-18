@@ -21,7 +21,10 @@ import { ProbabilityHero } from './components/ProbabilityHero.tsx';
 import { ModulesView } from './components/ModulesView.tsx';
 import { HistoryView } from './components/HistoryView.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
-import { TodayPreloadedTipsCard } from './components/TodayPreloadedTipsCard.tsx';
+import {
+  SuperCombinedTipCard,
+  type SaveSuperCombinedPayload,
+} from './components/SuperCombinedTipCard.tsx';
 import {
   SerieAMultipleCard,
   type SaveMultiplePayload,
@@ -40,6 +43,7 @@ import type {
   SerieAMultipleLeg,
   SerieAMultipleTip,
   SuggestedFixture,
+  SuperCombinedTip,
 } from './types/football.ts';
 
 type AppTab = 'analyzer' | 'tips' | 'fixtures' | 'modules' | 'history' | 'settings';
@@ -182,9 +186,9 @@ export default function App() {
   const [isLoadingMultiple, setIsLoadingMultiple] = useState(false);
   const [multipleError, setMultipleError] = useState<string | null>(null);
 
-  const [todayPreloadedTip, setTodayPreloadedTip] = useState<SerieAMultipleTip | null>(null);
-  const [isLoadingTodayPreloaded, setIsLoadingTodayPreloaded] = useState(true);
-  const [todayPreloadedError, setTodayPreloadedError] = useState<string | null>(null);
+  const [superCombinedTip, setSuperCombinedTip] = useState<SuperCombinedTip | null>(null);
+  const [isLoadingSuperTip, setIsLoadingSuperTip] = useState(true);
+  const [superTipError, setSuperTipError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -282,49 +286,35 @@ export default function App() {
     []
   );
 
-  // Preload current-day tips strictly for the Dashboard once on mount
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setIsLoadingTodayPreloaded(true);
-      setTodayPreloadedError(null);
-      try {
-        const res = await fetch('/api/serie-a-multiple', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            league: 'today',
-            count: 3,
-            dayFilter: 'today',
-            onlyToday: true,
-            forceRefresh: false,
-          }),
-        });
-        const json = await res.json();
-        if (!res.ok) {
-          throw new Error(json.error || 'Sem jogos qualificados na grade de hoje.');
-        }
-        if (!cancelled) {
-          const payload = json as SerieAMultipleTip;
-          setTodayPreloadedTip(payload);
-          setMultipleTip((prev) => prev ?? payload);
-        }
-      } catch (err: any) {
-        if (!cancelled) {
-          setTodayPreloadedError(
-            err?.message || 'Nenhuma partida qualificada encontrada para hoje.'
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingTodayPreloaded(false);
-        }
+  const fetchSuperCombinedTip = useCallback(async (forceRefresh = false) => {
+    setIsLoadingSuperTip(true);
+    setSuperTipError(null);
+    try {
+      const res = await fetch('/api/super-combined-tip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ forceRefresh }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(
+          json.error || 'Sem confrontos qualificados para a Super Dica Combinada.'
+        );
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      setSuperCombinedTip(json as SuperCombinedTip);
+    } catch (err: any) {
+      setSuperTipError(
+        err?.message || 'Não foi possível carregar a Super Dica Combinada no momento.'
+      );
+    } finally {
+      setIsLoadingSuperTip(false);
+    }
   }, []);
+
+  // Load Super Dica Combinada automatically on Dashboard mount
+  useEffect(() => {
+    fetchSuperCombinedTip(false);
+  }, [fetchSuperCombinedTip]);
 
   useEffect(() => {
     if (activeTab !== 'tips') return;
@@ -556,6 +546,40 @@ export default function App() {
       stake: payload.stake,
       potentialReturn: payload.potentialReturn,
       status: 'pending',
+    };
+    setMultipleHistory((prev) => [item, ...prev]);
+  };
+
+  const savedSuperTipSignatures = useMemo(
+    () => new Set(multipleHistory.map((item) => item.tipSignature)),
+    [multipleHistory]
+  );
+
+  const handleSaveSuperCombinedTip = (payload: SaveSuperCombinedPayload) => {
+    if (!payload.signature || savedSuperTipSignatures.has(payload.signature)) return;
+    const defaultStake = 50;
+    const item: MultipleHistoryItem = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      tipSignature: payload.signature,
+      createdAt: new Date().toISOString(),
+      competition: payload.title,
+      leagueSlug: payload.leagueSlug || 'world',
+      dayFilter: payload.isTodaySlate ? 'today' : 'all',
+      legs: payload.legs.map((leg) => ({
+        ...leg,
+        odd: leg.fairOdd,
+        status: 'pending',
+      })),
+      combinedProbabilityPct: payload.combinedProbabilityPct,
+      totalOdd: payload.fairOddEstimate,
+      stake: defaultStake,
+      potentialReturn: Number((defaultStake * payload.fairOddEstimate).toFixed(2)),
+      status: 'pending',
+      source: 'tip',
+      notes:
+        payload.mode === 'same-game'
+          ? 'Super Dica Combinada (mesmo jogo · modelo Poisson + ESPN)'
+          : 'Super Dica Combinada multi-mercados (melhor margem de acerto)',
     };
     setMultipleHistory((prev) => [item, ...prev]);
   };
@@ -998,15 +1022,22 @@ export default function App() {
 
       {/* Main Content Area */}
       <main id="top" className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 pt-4 sm:pt-6">
-        {/* TAB 1: ANALISADOR ESTATÍSTICO DE FUTEBOL (Dashboard com dicas pré-carregadas de hoje) */}
+        {/* TAB 1: ANALISADOR ESTATÍSTICO DE FUTEBOL (Dashboard com Super Dica Combinada) */}
         {activeTab === 'analyzer' && (
           <div>
-            <TodayPreloadedTipsCard
-              tip={todayPreloadedTip}
-              isLoading={isLoadingTodayPreloaded}
-              error={todayPreloadedError}
+            <SuperCombinedTipCard
+              tip={superCombinedTip}
+              isLoading={isLoadingSuperTip}
+              error={superTipError}
+              savedSignatures={savedSuperTipSignatures}
+              onRefresh={() => fetchSuperCombinedTip(true)}
               onOpenTipsMenu={() => setActiveTab('tips')}
+              onOpenHistory={() => {
+                setHistoryInitialSection('multiple');
+                setActiveTab('history');
+              }}
               onSelectLeg={handleSelectMultipleLeg}
+              onSaveToHistory={handleSaveSuperCombinedTip}
             />
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">

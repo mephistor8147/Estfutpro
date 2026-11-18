@@ -15,12 +15,16 @@ import type {
   SerieAMultipleLeg,
   SerieAMultipleTip,
   SuggestedFixture,
+  SuperCombinedLeg,
+  SuperCombinedTip,
+  SuperSameGameCombo,
+  SuperTipMarketCategory,
   TeamComplementaryStats,
   TeamIdentity,
   TeamLastFiveStats,
   TeamStandingsStats,
 } from '../types/football.js';
-import { calculatePoissonModel } from './poisson.js';
+import { calculatePoissonModel, poissonPmf } from './poisson.js';
 
 interface EspnSearchTeam {
   id: string;
@@ -1811,6 +1815,1237 @@ export async function buildSerieAMultipleViaEspn(): Promise<SerieAMultipleTip | 
   return buildMultipleTipViaEspn('bra.1', 3);
 }
 
+function poissonAtLeast(lambda: number, minK: number): number {
+  const safeLambda = Math.max(0.2, lambda);
+  let below = 0;
+  for (let k = 0; k < minK; k++) {
+    below += poissonPmf(safeLambda, k);
+  }
+  return Math.min(0.94, Math.max(0.05, 1 - below));
+}
+
+function poissonAtMost(lambda: number, maxK: number): number {
+  const safeLambda = Math.max(0.2, lambda);
+  let sum = 0;
+  for (let k = 0; k <= maxK; k++) {
+    sum += poissonPmf(safeLambda, k);
+  }
+  return Math.min(0.94, Math.max(0.05, sum));
+}
+
+function scorePracticalMargin(probPct: number, bonus = 0): number {
+  // Ideal hit margin sweet spot is 70%–87% (high accuracy without trivial 96% odds)
+  const penaltyOver = probPct > 89 ? (probPct - 89) * 2.2 : 0;
+  const penaltyUnder = probPct < 60 ? (60 - probPct) * 1.4 : 0;
+  return probPct + bonus - penaltyOver - penaltyUnder;
+}
+
+function computeFairOddFromPct(probPct: number): number {
+  const safe = Math.max(5, Math.min(96, probPct));
+  return Number((100 / safe).toFixed(2));
+}
+
+async function fetchQuickCardsAndCorners(
+  leagueSlug: string,
+  teamId: string,
+  completedEvents: ParsedScheduleEvent[],
+  summaryCache: Map<string, Promise<any>>
+): Promise<{
+  avgCards: number | null;
+  avgCorners: number | null;
+  sampleSize: number;
+}> {
+  const targetIds = completedEvents.slice(0, 3).map((e) => e.id).filter(Boolean);
+  if (targetIds.length === 0) {
+    return { avgCards: null, avgCorners: null, sampleSize: 0 };
+  }
+
+  const summaries = await Promise.all(
+    targetIds.map((id) => {
+      const cacheKey = `${leagueSlug}:${id}`;
+      let req = summaryCache.get(cacheKey);
+      if (!req) {
+        req = fetchJson<any>(
+          `https://site.api.espn.com/apis/site/v2/sports/soccer/${leagueSlug}/summary?event=${id}`,
+          4500
+        );
+        summaryCache.set(cacheKey, req);
+      }
+      return req;
+    })
+  );
+
+  const cards: number[] = [];
+  const corners: number[] = [];
+
+  for (const sum of summaries) {
+    const teamsBox = sum?.boxscore?.teams;
+    if (!Array.isArray(teamsBox)) continue;
+    const myBox = teamsBox.find((t: any) => String(t?.team?.id) === String(teamId));
+    if (!myBox || !Array.isArray(myBox.statistics)) continue;
+
+    const getVal = (statName: string): number | null => {
+      const s = myBox.statistics.find((x: any) => x?.name === statName);
+      if (!s) return null;
+      const n = Number(s.displayValue ?? s.value);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const yc = getVal('yellowCards');
+    const rc = getVal('redCards');
+    if (yc !== null || rc !== null) {
+      cards.push((yc ?? 0) + (rc ?? 0));
+    }
+
+    const c = getVal('wonCorners');
+    if (c !== null) {
+      corners.push(c);
+    }
+  }
+
+  const avg = (arr: number[]): number | null =>
+    arr.length > 0
+      ? Number((arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1))
+      : null;
+
+  return {
+    avgCards: avg(cards),
+    avgCorners: avg(corners),
+    sampleSize: Math.max(cards.length, corners.length),
+  };
+}
+
+export async function buildSuperCombinedTipViaEspn(): Promise<SuperCombinedTip | null> {
+  const nowDate = new Date();
+  const todayBrtIso = BRT_DAY_FORMATTER.format(nowDate);
+  const tomorrowBrtIso = BRT_DAY_FORMATTER.format(
+    new Date(nowDate.getTime() + 24 * 60 * 60 * 1000)
+  );
+  const todayBrtYmd = todayBrtIso.replace(/-/g, '');
+  const tomorrowBrtYmd = tomorrowBrtIso.replace(/-/g, '');
+  const todayIso = nowDate.toISOString().slice(0, 10);
+  const now = Date.now();
+
+  interface SuperCandidateMatch {
+    eventId: string;
+    leagueSlug: string;
+    compLabel: string;
+    timestamp: number;
+    isToday: boolean;
+    dateLabel: string;
+    homeId: string;
+    homeName: string;
+    homeAbbr: string;
+    homeColor: string;
+    homeLogoUrl?: string;
+    awayId: string;
+    awayName: string;
+    awayAbbr: string;
+    awayColor: string;
+    awayLogoUrl?: string;
+  }
+
+  const extractUpcoming = (batch: any, slug: string): SuperCandidateMatch[] => {
+    const out: SuperCandidateMatch[] = [];
+    const leagueTitle =
+      LEAGUE_LABELS[slug] || batch?.leagues?.[0]?.name || slug.toUpperCase();
+
+    for (const ev of batch?.events || []) {
+      const eventId = String(ev?.id || '');
+      const comp = ev?.competitions?.[0];
+      const statusType = comp?.status?.type;
+      const state = statusType?.state;
+      const completed = Boolean(statusType?.completed);
+
+      if (!eventId || completed || state !== 'pre') continue;
+
+      const evDate = ev?.date ? new Date(ev.date) : null;
+      const timestamp = evDate && !Number.isNaN(evDate.getTime()) ? evDate.getTime() : 0;
+      if (!timestamp || timestamp < now - 20 * 60 * 1000) continue;
+
+      const competitors = comp?.competitors || [];
+      const home = competitors.find((c: any) => c.homeAway === 'home');
+      const away = competitors.find((c: any) => c.homeAway === 'away');
+      if (!home?.team?.id || !away?.team?.id) continue;
+
+      const homeName = home.team.displayName || home.team.shortDisplayName || '';
+      const awayName = away.team.displayName || away.team.shortDisplayName || '';
+      if (
+        !homeName ||
+        !awayName ||
+        /\btbd\b/i.test(homeName) ||
+        /\btbd\b/i.test(awayName)
+      ) {
+        continue;
+      }
+
+      const evBrtDay = evDate ? BRT_DAY_FORMATTER.format(evDate) : '';
+      out.push({
+        eventId,
+        leagueSlug: slug,
+        compLabel: leagueTitle,
+        timestamp,
+        isToday: evBrtDay === todayBrtIso,
+        dateLabel: formatUpcomingKickoffLabel(evDate, statusType?.shortDetail),
+        homeId: String(home.team.id),
+        homeName,
+        homeAbbr: (home.team.abbreviation || homeName || 'MAN').slice(0, 3).toUpperCase(),
+        homeColor: sanitizeHex(home.team.color, '#0F766E'),
+        homeLogoUrl: extractTeamLogoUrl(home.team),
+        awayId: String(away.team.id),
+        awayName,
+        awayAbbr: (away.team.abbreviation || awayName || 'VIS').slice(0, 3).toUpperCase(),
+        awayColor: sanitizeHex(away.team.color, '#1D4ED8'),
+        awayLogoUrl: extractTeamLogoUrl(away.team),
+      });
+    }
+    return out;
+  };
+
+  // Step 1: Scan today's schedule across all leagues first
+  const todayBatches = await Promise.all(
+    TODAY_ALL_LEAGUES.map(async (slug) => {
+      const json = await fetchJson<any>(
+        `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${todayBrtYmd}`,
+        5500
+      );
+      return { slug, json };
+    })
+  );
+
+  const matchMap = new Map<string, SuperCandidateMatch>();
+  const lateAmericasFetches: Promise<{ slug: string; json: any }>[] = [];
+
+  for (const { slug, json } of todayBatches) {
+    if (json) {
+      for (const m of extractUpcoming(json, slug)) {
+        if (m.isToday) {
+          matchMap.set(`${slug}:${m.eventId}`, m);
+        }
+      }
+    }
+    if (
+      slug.startsWith('bra.') ||
+      slug.startsWith('conmebol.') ||
+      slug === 'arg.1' ||
+      slug === 'usa.1'
+    ) {
+      lateAmericasFetches.push(
+        fetchJson<any>(
+          `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${tomorrowBrtYmd}`,
+          5000
+        ).then((batch) => ({ slug, json: batch }))
+      );
+    }
+  }
+
+  if (lateAmericasFetches.length > 0) {
+    const lateBatches = await Promise.all(lateAmericasFetches);
+    for (const { slug, json } of lateBatches) {
+      if (!json) continue;
+      for (const m of extractUpcoming(json, slug)) {
+        if (m.isToday) {
+          matchMap.set(`${slug}:${m.eventId}`, m);
+        }
+      }
+    }
+  }
+
+  const todayCount = matchMap.size;
+
+  // Step 2: If today has fewer than 4 upcoming games (e.g., late night BRT), seamlessly include next upcoming major league games
+  if (matchMap.size < 4) {
+    const fallbackLeagues = Array.from(
+      new Set(['bra.1', 'bra.2', 'bra.copa_do_brazil', ...WORLD_MIX_LEAGUES])
+    );
+    const defaultBoards = await Promise.all(
+      fallbackLeagues.map(async (slug) => {
+        const json = await fetchJson<any>(
+          `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard`,
+          5500
+        );
+        return { slug, json };
+      })
+    );
+
+    const extraDates: Promise<{ slug: string; json: any }>[] = [];
+    for (const { slug, json } of defaultBoards) {
+      if (!json) continue;
+      const found = extractUpcoming(json, slug);
+      for (const m of found) {
+        const key = `${slug}:${m.eventId}`;
+        if (!matchMap.has(key)) matchMap.set(key, m);
+      }
+      if (found.length < 2) {
+        const nextDates = extractCalendarDates(json, todayIso, 2);
+        for (const dateStr of nextDates) {
+          const ymd = dateStr.slice(0, 10).replace(/-/g, '');
+          extraDates.push(
+            fetchJson<any>(
+              `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${ymd}`,
+              5500
+            ).then((batch) => ({ slug, json: batch }))
+          );
+        }
+      }
+    }
+
+    if (extraDates.length > 0) {
+      const extraRes = await Promise.all(extraDates);
+      for (const { slug, json } of extraRes) {
+        if (!json) continue;
+        for (const m of extractUpcoming(json, slug)) {
+          const key = `${slug}:${m.eventId}`;
+          if (!matchMap.has(key)) matchMap.set(key, m);
+        }
+      }
+    }
+  }
+
+  const allUpcoming = Array.from(matchMap.values()).sort((a, b) => {
+    if (a.isToday !== b.isToday) return a.isToday ? -1 : 1;
+    return a.timestamp - b.timestamp;
+  });
+
+  if (allUpcoming.length === 0) {
+    return null;
+  }
+
+  // Pick up to 8 diverse upcoming matches (preferring 2 per league max first)
+  const perLeague = new Map<string, number>();
+  const diverse: SuperCandidateMatch[] = [];
+  const overflow: SuperCandidateMatch[] = [];
+  for (const m of allUpcoming) {
+    const cnt = perLeague.get(m.leagueSlug) ?? 0;
+    if (cnt < 2) {
+      perLeague.set(m.leagueSlug, cnt + 1);
+      diverse.push(m);
+    } else {
+      overflow.push(m);
+    }
+  }
+  const candidateMatches = [...diverse, ...overflow].slice(0, 8);
+
+  const involvedLeagues = Array.from(new Set(candidateMatches.map((m) => m.leagueSlug)));
+  const teamPairs = Array.from(
+    new Map(
+      candidateMatches.flatMap((m) => [
+        [`${m.leagueSlug}:${m.homeId}`, { slug: m.leagueSlug, teamId: m.homeId }],
+        [`${m.leagueSlug}:${m.awayId}`, { slug: m.leagueSlug, teamId: m.awayId }],
+      ])
+    ).entries()
+  );
+
+  const [standingsResults, scheduleResults] = await Promise.all([
+    Promise.all(
+      involvedLeagues.map(async (slug) => {
+        const json = await fetchJson<any>(
+          `https://site.api.espn.com/apis/v2/sports/soccer/${slug}/standings`,
+          6000
+        );
+        return [slug, json] as const;
+      })
+    ),
+    Promise.all(
+      teamPairs.map(async ([key, pair]) => {
+        const json = await fetchJson<any>(
+          `https://site.api.espn.com/apis/site/v2/sports/soccer/${pair.slug}/teams/${pair.teamId}/schedule`,
+          6000
+        );
+        return [key, json] as const;
+      })
+    ),
+  ]);
+
+  const standingsJsonMap = new Map<string, any>(standingsResults);
+  const scheduleMap = new Map<string, any>(scheduleResults);
+
+  const standingsEntriesByLeague = new Map<string, any[]>();
+  for (const [slug, sJson] of standingsJsonMap.entries()) {
+    const entries: any[] = [];
+    for (const child of sJson?.children || []) {
+      if (Array.isArray(child?.standings?.entries)) {
+        entries.push(...child.standings.entries);
+      }
+    }
+    standingsEntriesByLeague.set(slug, entries);
+  }
+
+  const buildStanding = (
+    slug: string,
+    teamId: string,
+    completedList: ParsedScheduleEvent[]
+  ): TeamStandingsStats => {
+    const entries = standingsEntriesByLeague.get(slug) || [];
+    const entry = entries.find((e) => String(e?.team?.id) === String(teamId));
+    const fallback = buildStandingsFromSchedule(completedList);
+    if (!entry || !Array.isArray(entry.stats)) return fallback;
+
+    const played = getStatValue(entry.stats, 'gamesPlayed') ?? fallback.played;
+    const wins = getStatValue(entry.stats, 'wins') ?? fallback.wins;
+    const draws = getStatValue(entry.stats, 'ties') ?? fallback.draws;
+    const losses = getStatValue(entry.stats, 'losses') ?? fallback.losses;
+    const points = getStatValue(entry.stats, 'points') ?? fallback.points;
+    const goalsFor = getStatValue(entry.stats, 'pointsFor') ?? fallback.goalsFor;
+    const goalsAgainst = getStatValue(entry.stats, 'pointsAgainst') ?? fallback.goalsAgainst;
+    const goalDifference =
+      getStatValue(entry.stats, 'pointDifferential') ??
+      (goalsFor !== null && goalsAgainst !== null ? goalsFor - goalsAgainst : null);
+    const position = getStatValue(entry.stats, 'rank');
+    const winPercentage =
+      points !== null && played && played > 0
+        ? Math.round((points / (played * 3)) * 100)
+        : fallback.winPercentage;
+
+    return {
+      position,
+      points,
+      played,
+      wins,
+      draws,
+      losses,
+      goalsFor,
+      goalsAgainst,
+      goalDifference,
+      winPercentage,
+      homeRecord: fallback.homeRecord,
+      awayRecord: fallback.awayRecord,
+    };
+  };
+
+  interface PreMatchContext {
+    match: SuperCandidateMatch;
+    homeEvents: ParsedScheduleEvent[];
+    awayEvents: ParsedScheduleEvent[];
+    homeStandings: TeamStandingsStats;
+    awayStandings: TeamStandingsStats;
+    analysisData: MatchAnalysisData;
+    poisson: ReturnType<typeof calculatePoissonModel>;
+    dataRichness: number;
+  }
+
+  const defaultYear = String(new Date().getFullYear());
+  const preContexts: PreMatchContext[] = [];
+
+  for (const match of candidateMatches) {
+    const homeRaw = scheduleMap.get(`${match.leagueSlug}:${match.homeId}`);
+    const awayRaw = scheduleMap.get(`${match.leagueSlug}:${match.awayId}`);
+    const homeEvents = parseScheduleEvents(homeRaw, match.homeId, match.compLabel)
+      .filter((e) => e.completed)
+      .sort((a, b) => b.timestamp - a.timestamp);
+    const awayEvents = parseScheduleEvents(awayRaw, match.awayId, match.compLabel)
+      .filter((e) => e.completed)
+      .sort((a, b) => b.timestamp - a.timestamp);
+
+    const homeStandings = buildStanding(match.leagueSlug, match.homeId, homeEvents);
+    const awayStandings = buildStanding(match.leagueSlug, match.awayId, awayEvents);
+
+    const h2hEvents = homeEvents
+      .filter((e) => String(e.opponentId) === match.awayId)
+      .slice(0, 5);
+    const h2hHomeWins = h2hEvents.filter((e) => e.outcome === 'V').length;
+    const h2hAwayWins = h2hEvents.filter((e) => e.outcome === 'D').length;
+    const h2hDraws = h2hEvents.filter((e) => e.outcome === 'E').length;
+    const h2hAvgGoals =
+      h2hEvents.length > 0
+        ? Number(
+            (
+              h2hEvents.reduce((acc, e) => acc + e.teamScore + e.opponentScore, 0) /
+              h2hEvents.length
+            ).toFixed(2)
+          )
+        : null;
+
+    const latestHomeTs = homeEvents[0]?.timestamp;
+    const latestAwayTs = awayEvents[0]?.timestamp;
+    const homeRest = latestHomeTs
+      ? Math.max(0, Math.round((match.timestamp - latestHomeTs) / (1000 * 60 * 60 * 24)))
+      : null;
+    const awayRest = latestAwayTs
+      ? Math.max(0, Math.round((match.timestamp - latestAwayTs) / (1000 * 60 * 60 * 24)))
+      : null;
+
+    let contextualImpactHome = 0;
+    let contextualImpactAway = 0;
+    if (homeRest !== null && awayRest !== null) {
+      if (homeRest - awayRest >= 3) contextualImpactHome = 0.08;
+      else if (awayRest - homeRest >= 3) contextualImpactAway = 0.08;
+    }
+
+    const sJson = standingsJsonMap.get(match.leagueSlug);
+    const seasonLabel = String(
+      sJson?.children?.[0]?.standings?.seasonDisplayName || defaultYear
+    );
+
+    const analysisData: MatchAnalysisData = {
+      competition: match.compLabel,
+      season: seasonLabel,
+      matchDateInfo: match.dateLabel,
+      homeTeam: {
+        name: match.homeName,
+        shortCode: match.homeAbbr,
+        primaryColor: match.homeColor,
+        secondaryColor: '#FFFFFF',
+        logoUrl: match.homeLogoUrl,
+      },
+      awayTeam: {
+        name: match.awayName,
+        shortCode: match.awayAbbr,
+        primaryColor: match.awayColor,
+        secondaryColor: '#FFFFFF',
+        logoUrl: match.awayLogoUrl,
+      },
+      module1LastFive: {
+        home: buildLastFiveStats(homeEvents, match.compLabel),
+        away: buildLastFiveStats(awayEvents, match.compLabel),
+      },
+      module2HeadToHead: {
+        totalMatchesAnalyzed: h2hEvents.length,
+        homeTeamWins: h2hHomeWins,
+        awayTeamWins: h2hAwayWins,
+        draws: h2hDraws,
+        avgGoalsPerMatch: h2hAvgGoals,
+        recentMatches: [],
+      },
+      module3Standings: {
+        home: homeStandings,
+        away: awayStandings,
+      },
+      module4Complementary: {
+        home: {
+          avgCorners: null,
+          avgCards: null,
+          avgShots: null,
+          avgShotsOnTarget: null,
+          avgPossessionPct: null,
+          bttsPct: null,
+          over15Pct: null,
+          over25Pct: null,
+        },
+        away: {
+          avgCorners: null,
+          avgCards: null,
+          avgShots: null,
+          avgShotsOnTarget: null,
+          avgPossessionPct: null,
+          bttsPct: null,
+          over15Pct: null,
+          over25Pct: null,
+        },
+      },
+      module5Context: {
+        homeAdvantageNote: null,
+        matchImportance: null,
+        homeTeamContext: {
+          absencesAndSuspensions: [],
+          restDays: homeRest,
+          recentCoachChange: null,
+          formNote: null,
+        },
+        awayTeamContext: {
+          absencesAndSuspensions: [],
+          restDays: awayRest,
+          recentCoachChange: null,
+          formNote: null,
+        },
+        contextualImpactHome,
+        contextualImpactAway,
+      },
+      dataWarnings: [],
+    };
+
+    const poisson = calculatePoissonModel(analysisData);
+    const dataRichness =
+      Math.min(5, homeEvents.length) +
+      Math.min(5, awayEvents.length) +
+      (homeStandings.played ? 3 : 0) +
+      (awayStandings.played ? 3 : 0) +
+      (match.isToday ? 6 : 0);
+
+    preContexts.push({
+      match,
+      homeEvents,
+      awayEvents,
+      homeStandings,
+      awayStandings,
+      analysisData,
+      poisson,
+      dataRichness,
+    });
+  }
+
+  // Enrich top 6 richest matches with REAL ESPN boxscore cards & corners averages
+  preContexts.sort((a, b) => b.dataRichness - a.dataRichness || a.match.timestamp - b.match.timestamp);
+  const topForBoxscores = preContexts.slice(0, 6);
+  const summaryCache = new Map<string, Promise<any>>();
+
+  const boxscoreMap = new Map<
+    string,
+    {
+      homeCards: number | null;
+      awayCards: number | null;
+      homeCorners: number | null;
+      awayCorners: number | null;
+    }
+  >();
+
+  await Promise.all(
+    topForBoxscores.map(async (ctx) => {
+      const [hBox, aBox] = await Promise.all([
+        fetchQuickCardsAndCorners(ctx.match.leagueSlug, ctx.match.homeId, ctx.homeEvents, summaryCache),
+        fetchQuickCardsAndCorners(ctx.match.leagueSlug, ctx.match.awayId, ctx.awayEvents, summaryCache),
+      ]);
+      boxscoreMap.set(`${ctx.match.leagueSlug}:${ctx.match.eventId}`, {
+        homeCards: hBox.avgCards,
+        awayCards: aBox.avgCards,
+        homeCorners: hBox.avgCorners,
+        awayCorners: aBox.avgCorners,
+      });
+    })
+  );
+
+  type ScorePred = (h: number, a: number) => boolean;
+
+  interface EvaluatedMarket {
+    category: SuperTipMarketCategory;
+    categoryLabel: string;
+    marketLabel: string;
+    probabilityPct: number;
+    score: number;
+    statHighlight: string;
+    rationale: string;
+    pred?: ScorePred; // present for goal/result/btts markets so joint probability is exact
+  }
+
+  interface MatchMarketProfile {
+    ctx: PreMatchContext;
+    expectedCardsTotal: number | null;
+    expectedCornersTotal: number | null;
+    bestByCategory: Partial<Record<SuperTipMarketCategory, EvaluatedMarket>>;
+    allOptionsByCategory: Partial<Record<SuperTipMarketCategory, EvaluatedMarket[]>>;
+  }
+
+  const profiles: MatchMarketProfile[] = [];
+
+  for (const ctx of topForBoxscores) {
+    const { match, poisson, homeEvents, awayEvents, homeStandings, awayStandings, analysisData } =
+      ctx;
+    const lambdaH = poisson.expectedGoalsHome;
+    const lambdaA = poisson.expectedGoalsAway;
+    const totalXg = Number((lambdaH + lambdaA).toFixed(2));
+    const homeLast5 = analysisData.module1LastFive.home;
+    const awayLast5 = analysisData.module1LastFive.away;
+    const homePosStr = homeStandings.position ? `${homeStandings.position}º` : 'Mandante';
+    const awayPosStr = awayStandings.position ? `${awayStandings.position}º` : 'Visitante';
+
+    // Exact probabilities from Poisson 0..8 grid
+    const probFromPred = (pred: ScorePred): number => {
+      let p = 0;
+      for (let i = 0; i <= 8; i++) {
+        const ph = poissonPmf(lambdaH, i);
+        for (let j = 0; j <= 8; j++) {
+          if (pred(i, j)) p += ph * poissonPmf(lambdaA, j);
+        }
+      }
+      return Math.min(95, Math.max(4, Math.round(p * 100)));
+    };
+
+    // Empirical season rates for gentle calibration (75% Poisson + 25% empirical when >= 6 matches)
+    const calcEmpirical = (
+      events: ParsedScheduleEvent[],
+      check: (e: ParsedScheduleEvent) => boolean
+    ): number | null => {
+      if (events.length < 6) return null;
+      const hits = events.filter(check).length;
+      return Math.round((hits / events.length) * 100);
+    };
+
+    const blendWithEmpirical = (
+      poissonPct: number,
+      empH: number | null,
+      empA: number | null
+    ): number => {
+      if (empH === null || empA === null) return poissonPct;
+      const empAvg = (empH + empA) / 2;
+      return Math.min(93, Math.max(8, Math.round(poissonPct * 0.75 + empAvg * 0.25)));
+    };
+
+    const empBttsH = calcEmpirical(homeEvents, (e) => e.teamScore > 0 && e.opponentScore > 0);
+    const empBttsA = calcEmpirical(awayEvents, (e) => e.teamScore > 0 && e.opponentScore > 0);
+    const empO15H = calcEmpirical(homeEvents, (e) => e.teamScore + e.opponentScore >= 2);
+    const empO15A = calcEmpirical(awayEvents, (e) => e.teamScore + e.opponentScore >= 2);
+    const empO25H = calcEmpirical(homeEvents, (e) => e.teamScore + e.opponentScore >= 3);
+    const empO25A = calcEmpirical(awayEvents, (e) => e.teamScore + e.opponentScore >= 3);
+    const empU35H = calcEmpirical(homeEvents, (e) => e.teamScore + e.opponentScore <= 3);
+    const empU35A = calcEmpirical(awayEvents, (e) => e.teamScore + e.opponentScore <= 3);
+
+    const bttsYesPct = blendWithEmpirical(poisson.bttsPct, empBttsH, empBttsA);
+    const bttsNoPct = Math.min(93, Math.max(7, 100 - bttsYesPct));
+    const over15Pct = blendWithEmpirical(poisson.over15Pct, empO15H, empO15A);
+    const over25Pct = blendWithEmpirical(poisson.over25Pct, empO25H, empO25A);
+    const under25Pct = Math.min(93, Math.max(7, 100 - over25Pct));
+    const rawUnder35 = probFromPred((i, j) => i + j <= 3);
+    const under35Pct = blendWithEmpirical(rawUnder35, empU35H, empU35A);
+
+    const homeOrDrawPct = Math.min(94, poisson.homeWinPct + poisson.drawPct);
+    const awayOrDrawPct = Math.min(94, poisson.awayWinPct + poisson.drawPct);
+    const homeOrAwayPct = Math.min(94, poisson.homeWinPct + poisson.awayWinPct);
+
+    const resultOptions: EvaluatedMarket[] = [
+      {
+        category: 'result',
+        categoryLabel: 'Casa / Fora / Empate',
+        marketLabel: `Vitória ${match.homeName}`,
+        probabilityPct: poisson.homeWinPct,
+        score: scorePracticalMargin(poisson.homeWinPct, poisson.homeWinPct >= 56 ? 12 : -4),
+        statHighlight: `1X2: ${poisson.homeWinPct}% · ${poisson.drawPct}% · ${poisson.awayWinPct}%`,
+        rationale: `${match.homeName} (${homePosStr}) soma ${homeLast5.wins}V nos últimos 5 jogos com xG ${lambdaH.toFixed(2)} em casa contra ${match.awayName} (${awayPosStr}).`,
+        pred: (i, j) => i > j,
+      },
+      {
+        category: 'result',
+        categoryLabel: 'Casa / Fora / Empate',
+        marketLabel: `Vitória ${match.awayName}`,
+        probabilityPct: poisson.awayWinPct,
+        score: scorePracticalMargin(poisson.awayWinPct, poisson.awayWinPct >= 56 ? 12 : -4),
+        statHighlight: `1X2: ${poisson.homeWinPct}% · ${poisson.drawPct}% · ${poisson.awayWinPct}%`,
+        rationale: `${match.awayName} (${awayPosStr}) projeta xG ${lambdaA.toFixed(2)} e ${awayLast5.wins}V nas últimas 5 partidas diante de ${match.homeName}.`,
+        pred: (i, j) => j > i,
+      },
+      {
+        category: 'result',
+        categoryLabel: 'Casa / Fora / Empate',
+        marketLabel: `Dupla chance: ${match.homeName} ou Empate`,
+        probabilityPct: homeOrDrawPct,
+        score: scorePracticalMargin(homeOrDrawPct, 2),
+        statHighlight: `1X2: ${poisson.homeWinPct}% · ${poisson.drawPct}% · ${poisson.awayWinPct}%`,
+        rationale: `${match.homeName} (${homePosStr}) mantém ${homeOrDrawPct}% de margem para pontuar como mandante (xG ${lambdaH.toFixed(2)}–${lambdaA.toFixed(2)}).`,
+        pred: (i, j) => i >= j,
+      },
+      {
+        category: 'result',
+        categoryLabel: 'Casa / Fora / Empate',
+        marketLabel: `Dupla chance: ${match.awayName} ou Empate`,
+        probabilityPct: awayOrDrawPct,
+        score: scorePracticalMargin(awayOrDrawPct, 2),
+        statHighlight: `1X2: ${poisson.homeWinPct}% · ${poisson.drawPct}% · ${poisson.awayWinPct}%`,
+        rationale: `${match.awayName} (${awayPosStr}) registra ${awayLast5.wins}V-${awayLast5.draws}E nas últimas 5 rodadas e ${awayOrDrawPct}% de chance de sair invicto.`,
+        pred: (i, j) => j >= i,
+      },
+      {
+        category: 'result',
+        categoryLabel: 'Casa / Fora / Empate',
+        marketLabel: 'Casa ou Fora (sem empate)',
+        probabilityPct: homeOrAwayPct,
+        score: scorePracticalMargin(homeOrAwayPct, -1),
+        statHighlight: `Empate em apenas ${poisson.drawPct}%`,
+        rationale: `Confronto com baixa tendência ao empate (${poisson.drawPct}% no modelo de Poisson), favorecendo vencedor nos 90 minutos.`,
+        pred: (i, j) => i !== j,
+      },
+    ];
+
+    if (poisson.drawPct >= 30 && Math.abs(poisson.homeWinPct - poisson.awayWinPct) <= 6) {
+      resultOptions.push({
+        category: 'result',
+        categoryLabel: 'Casa / Fora / Empate',
+        marketLabel: 'Empate',
+        probabilityPct: poisson.drawPct,
+        score: scorePracticalMargin(poisson.drawPct, -8),
+        statHighlight: `Equilíbrio: ${poisson.homeWinPct}% · ${poisson.drawPct}% · ${poisson.awayWinPct}%`,
+        rationale: `Equilíbrio estreito entre ${match.homeName} e ${match.awayName} com projeção de xG parelho (${lambdaH.toFixed(2)}–${lambdaA.toFixed(2)}).`,
+        pred: (i, j) => i === j,
+      });
+    }
+
+    resultOptions.sort((a, b) => b.score - a.score);
+
+    const goalsOptions: EvaluatedMarket[] = [
+      {
+        category: 'goals',
+        categoryLabel: 'Gols +/-',
+        marketLabel: 'Mais de 1,5 gols',
+        probabilityPct: over15Pct,
+        score: scorePracticalMargin(over15Pct, 3),
+        statHighlight: `xG total ${totalXg.toFixed(2)} (${lambdaH.toFixed(1)}–${lambdaA.toFixed(1)})`,
+        rationale: `Soma projetada de ${totalXg.toFixed(2)} xG com médias recentes de ${homeLast5.avgGoalsScored} e ${awayLast5.avgGoalsScored} gols marcados por partida.`,
+        pred: (i, j) => i + j >= 2,
+      },
+      {
+        category: 'goals',
+        categoryLabel: 'Gols +/-',
+        marketLabel: 'Mais de 2,5 gols',
+        probabilityPct: over25Pct,
+        score: scorePracticalMargin(over25Pct, over25Pct >= 62 ? 6 : 0),
+        statHighlight: `xG total ${totalXg.toFixed(2)}`,
+        rationale: `Tendência ofensiva elevada (${totalXg.toFixed(2)} gols esperados) apoiada pelo ritmo de gols das duas equipes nas últimas 5 rodadas.`,
+        pred: (i, j) => i + j >= 3,
+      },
+      {
+        category: 'goals',
+        categoryLabel: 'Gols +/-',
+        marketLabel: 'Menos de 3,5 gols',
+        probabilityPct: under35Pct,
+        score: scorePracticalMargin(under35Pct, totalXg <= 2.55 ? 4 : 0),
+        statHighlight: `xG total ${totalXg.toFixed(2)}`,
+        rationale: `Ritmo moderado de gols (xG somado de ${totalXg.toFixed(2)}) com alta margem estatística para até 3 gols na partida.`,
+        pred: (i, j) => i + j <= 3,
+      },
+      {
+        category: 'goals',
+        categoryLabel: 'Gols +/-',
+        marketLabel: 'Menos de 2,5 gols',
+        probabilityPct: under25Pct,
+        score: scorePracticalMargin(under25Pct, under25Pct >= 62 ? 5 : 0),
+        statHighlight: `xG total ${totalXg.toFixed(2)}`,
+        rationale: `Defesas consistentes projetam placar travado (${totalXg.toFixed(2)} xG combinado e ${under25Pct}% de probabilidade sob 2,5 gols).`,
+        pred: (i, j) => i + j <= 2,
+      },
+    ];
+    goalsOptions.sort((a, b) => b.score - a.score);
+
+    const bttsOptions: EvaluatedMarket[] = [
+      {
+        category: 'btts',
+        categoryLabel: 'Ambas marcam',
+        marketLabel: 'Ambas marcam: Sim',
+        probabilityPct: bttsYesPct,
+        score: scorePracticalMargin(bttsYesPct, 2),
+        statHighlight:
+          empBttsH !== null && empBttsA !== null
+            ? `BTTS temp.: ${empBttsH}% / ${empBttsA}%`
+            : `xG ${lambdaH.toFixed(1)}–${lambdaA.toFixed(1)}`,
+        rationale: `${match.homeName} (${homeLast5.avgGoalsScored} gols/jogo) e ${match.awayName} (${awayLast5.avgGoalsScored} gols/jogo) apresentam produção ofensiva regular.`,
+        pred: (i, j) => i >= 1 && j >= 1,
+      },
+      {
+        category: 'btts',
+        categoryLabel: 'Ambas marcam',
+        marketLabel: 'Ambas marcam: Não',
+        probabilityPct: bttsNoPct,
+        score: scorePracticalMargin(bttsNoPct, 2),
+        statHighlight:
+          empBttsH !== null && empBttsA !== null
+            ? `Sem BTTS: ${100 - empBttsH}% / ${100 - empBttsA}%`
+            : `xG ${lambdaH.toFixed(1)}–${lambdaA.toFixed(1)}`,
+        rationale: `Assimetria defensiva ou ataque visitante contido (xG ${lambdaH.toFixed(2)}–${lambdaA.toFixed(2)}) eleva a chance de ao menos um zero no placar.`,
+        pred: (i, j) => i === 0 || j === 0,
+      },
+    ];
+    bttsOptions.sort((a, b) => b.score - a.score);
+
+    // Real ESPN Boxscore Cards & Corners
+    const box = boxscoreMap.get(`${match.leagueSlug}:${match.eventId}`);
+    const expectedCardsTotal =
+      box && box.homeCards !== null && box.awayCards !== null
+        ? Number((box.homeCards + box.awayCards).toFixed(1))
+        : null;
+    const expectedCornersTotal =
+      box && box.homeCorners !== null && box.awayCorners !== null
+        ? Number((box.homeCorners + box.awayCorners).toFixed(1))
+        : null;
+
+    const cardsOptions: EvaluatedMarket[] = [];
+    if (expectedCardsTotal !== null && expectedCardsTotal > 0.5) {
+      const cardCandidates: { label: string; prob: number; bonus: number }[] = [
+        {
+          label: 'Mais de 2,5 cartões',
+          prob: Math.round(poissonAtLeast(expectedCardsTotal, 3) * 100),
+          bonus: 2,
+        },
+        {
+          label: 'Mais de 3,5 cartões',
+          prob: Math.round(poissonAtLeast(expectedCardsTotal, 4) * 100),
+          bonus: 4,
+        },
+        {
+          label: 'Mais de 4,5 cartões',
+          prob: Math.round(poissonAtLeast(expectedCardsTotal, 5) * 100),
+          bonus: 4,
+        },
+        {
+          label: 'Menos de 4,5 cartões',
+          prob: Math.round(poissonAtMost(expectedCardsTotal, 4) * 100),
+          bonus: expectedCardsTotal <= 3.2 ? 3 : 0,
+        },
+        {
+          label: 'Menos de 5,5 cartões',
+          prob: Math.round(poissonAtMost(expectedCardsTotal, 5) * 100),
+          bonus: 2,
+        },
+        {
+          label: 'Menos de 6,5 cartões',
+          prob: Math.round(poissonAtMost(expectedCardsTotal, 6) * 100),
+          bonus: 0,
+        },
+      ];
+
+      for (const cc of cardCandidates) {
+        if (cc.prob < 58 || cc.prob > 90) continue;
+        cardsOptions.push({
+          category: 'cards',
+          categoryLabel: 'Total de cartões',
+          marketLabel: cc.label,
+          probabilityPct: cc.prob,
+          score: scorePracticalMargin(cc.prob, cc.bonus),
+          statHighlight: `Média real ${expectedCardsTotal.toFixed(1).replace('.', ',')} cartões/jogo`,
+          rationale: `Súmulas recentes ESPN: ${match.homeName} (${box!.homeCards!.toFixed(1).replace('.', ',')}) + ${match.awayName} (${box!.awayCards!.toFixed(1).replace('.', ',')}) somam ${expectedCardsTotal.toFixed(1).replace('.', ',')} cartões/jogo.`,
+        });
+      }
+      cardsOptions.sort((a, b) => b.score - a.score);
+    }
+
+    const cornersOptions: EvaluatedMarket[] = [];
+    if (expectedCornersTotal !== null && expectedCornersTotal > 3) {
+      const cornerCandidates: { label: string; prob: number; bonus: number }[] = [
+        {
+          label: 'Mais de 7,5 escanteios',
+          prob: Math.round(poissonAtLeast(expectedCornersTotal, 8) * 100),
+          bonus: 2,
+        },
+        {
+          label: 'Mais de 8,5 escanteios',
+          prob: Math.round(poissonAtLeast(expectedCornersTotal, 9) * 100),
+          bonus: 4,
+        },
+        {
+          label: 'Mais de 9,5 escanteios',
+          prob: Math.round(poissonAtLeast(expectedCornersTotal, 10) * 100),
+          bonus: 4,
+        },
+        {
+          label: 'Menos de 11,5 escanteios',
+          prob: Math.round(poissonAtMost(expectedCornersTotal, 11) * 100),
+          bonus: 2,
+        },
+        {
+          label: 'Menos de 12,5 escanteios',
+          prob: Math.round(poissonAtMost(expectedCornersTotal, 12) * 100),
+          bonus: 0,
+        },
+      ];
+
+      for (const cn of cornerCandidates) {
+        if (cn.prob < 58 || cn.prob > 90) continue;
+        cornersOptions.push({
+          category: 'corners',
+          categoryLabel: 'Escanteios',
+          marketLabel: cn.label,
+          probabilityPct: cn.prob,
+          score: scorePracticalMargin(cn.prob, cn.bonus),
+          statHighlight: `Média real ${expectedCornersTotal.toFixed(1).replace('.', ',')} esc./jogo`,
+          rationale: `Média oficial dos últimos jogos: ${match.homeName} (${box!.homeCorners!.toFixed(1).replace('.', ',')}) + ${match.awayName} (${box!.awayCorners!.toFixed(1).replace('.', ',')}) projetam ${expectedCornersTotal.toFixed(1).replace('.', ',')} escanteios.`,
+        });
+      }
+      cornersOptions.sort((a, b) => b.score - a.score);
+    }
+
+    const bestByCategory: MatchMarketProfile['bestByCategory'] = {
+      result: resultOptions[0],
+      goals: goalsOptions[0],
+      btts: bttsOptions[0],
+      ...(cardsOptions[0] ? { cards: cardsOptions[0] } : {}),
+      ...(cornersOptions[0] ? { corners: cornersOptions[0] } : {}),
+    };
+
+    profiles.push({
+      ctx,
+      expectedCardsTotal,
+      expectedCornersTotal,
+      bestByCategory,
+      allOptionsByCategory: {
+        result: resultOptions,
+        goals: goalsOptions,
+        btts: bttsOptions,
+        cards: cardsOptions,
+        corners: cornersOptions,
+      },
+    });
+  }
+
+  if (profiles.length === 0) {
+    return null;
+  }
+
+  const toSuperLeg = (
+    profile: MatchMarketProfile,
+    opt: EvaluatedMarket
+  ): SuperCombinedLeg => {
+    const { match, poisson } = profile.ctx;
+    return {
+      eventId: match.eventId,
+      leagueSlug: match.leagueSlug,
+      homeTeam: match.homeName,
+      awayTeam: match.awayName,
+      homeShortCode: match.homeAbbr,
+      awayShortCode: match.awayAbbr,
+      homeLogoUrl: match.homeLogoUrl,
+      awayLogoUrl: match.awayLogoUrl,
+      homeColor: match.homeColor,
+      awayColor: match.awayColor,
+      competition: match.compLabel,
+      dateLabel: match.dateLabel,
+      marketLabel: opt.marketLabel,
+      probabilityPct: opt.probabilityPct,
+      expectedGoalsHome: poisson.expectedGoalsHome,
+      expectedGoalsAway: poisson.expectedGoalsAway,
+      rationale: opt.rationale,
+      category: opt.category,
+      categoryLabel: opt.categoryLabel,
+      statHighlight: opt.statHighlight,
+      fairOdd: computeFairOddFromPct(opt.probabilityPct),
+      expectedCardsTotal: profile.expectedCardsTotal,
+      expectedCornersTotal: profile.expectedCornersTotal,
+    };
+  };
+
+  // =========================================================================
+  // MODE 1: Multi-Match Super Combinada (optimal assignment across core markets)
+  // =========================================================================
+  const hasAnyCards = profiles.some((p) => Boolean(p.bestByCategory.cards));
+  const hasAnyCorners = profiles.some((p) => Boolean(p.bestByCategory.corners));
+  const targetCategories: SuperTipMarketCategory[] = hasAnyCards
+    ? ['result', 'goals', 'btts', 'cards']
+    : hasAnyCorners
+      ? ['result', 'goals', 'btts', 'corners']
+      : ['result', 'goals', 'btts'];
+
+  let bestAssignment: { profileIdx: number; cat: SuperTipMarketCategory; opt: EvaluatedMarket }[] =
+    [];
+  let bestAssignmentScore = -Infinity;
+
+  const searchAssignment = (
+    catIdx: number,
+    usedMatches: Set<number>,
+    current: { profileIdx: number; cat: SuperTipMarketCategory; opt: EvaluatedMarket }[],
+    scoreSum: number
+  ) => {
+    if (catIdx >= targetCategories.length) {
+      if (scoreSum > bestAssignmentScore) {
+        bestAssignmentScore = scoreSum;
+        bestAssignment = [...current];
+      }
+      return;
+    }
+
+    const cat = targetCategories[catIdx];
+    let branched = false;
+    for (let i = 0; i < profiles.length; i++) {
+      if (profiles.length >= targetCategories.length && usedMatches.has(i)) continue;
+      const opt = profiles[i].bestByCategory[cat];
+      if (!opt) continue;
+      branched = true;
+      usedMatches.add(i);
+      current.push({ profileIdx: i, cat, opt });
+      searchAssignment(catIdx + 1, usedMatches, current, scoreSum + opt.score);
+      current.pop();
+      usedMatches.delete(i);
+    }
+
+    if (!branched) {
+      searchAssignment(catIdx + 1, usedMatches, current, scoreSum - 25);
+    }
+  };
+
+  searchAssignment(0, new Set<number>(), [], 0);
+
+  const multiMatchLegs: SuperCombinedLeg[] = bestAssignment.map(({ profileIdx, opt }) =>
+    toSuperLeg(profiles[profileIdx], opt)
+  );
+
+  // If fewer than 4 legs and an unused match has corners, append best corners leg
+  if (multiMatchLegs.length < 4 && hasAnyCorners) {
+    const usedIds = new Set(multiMatchLegs.map((l) => `${l.leagueSlug}:${l.eventId}`));
+    const cornerCandidates = profiles
+      .filter((p) => p.bestByCategory.corners && !usedIds.has(`${p.ctx.match.leagueSlug}:${p.ctx.match.eventId}`))
+      .sort((a, b) => (b.bestByCategory.corners?.score ?? 0) - (a.bestByCategory.corners?.score ?? 0));
+    if (cornerCandidates[0]?.bestByCategory.corners) {
+      multiMatchLegs.push(
+        toSuperLeg(cornerCandidates[0], cornerCandidates[0].bestByCategory.corners)
+      );
+    }
+  }
+
+  const multiCombinedProduct = multiMatchLegs.reduce(
+    (acc, leg) => acc * (leg.probabilityPct / 100),
+    1
+  );
+  const multiRawPct = multiCombinedProduct * 100;
+  const multiMatchCombinedPct =
+    multiRawPct >= 1 ? Math.round(multiRawPct) : Math.max(0.5, Number(multiRawPct.toFixed(1)));
+  const multiMatchAvgPct =
+    multiMatchLegs.length > 0
+      ? Math.round(
+          multiMatchLegs.reduce((acc, leg) => acc + leg.probabilityPct, 0) /
+            multiMatchLegs.length
+        )
+      : 0;
+  const multiMatchFairOdd = Number(
+    (1 / Math.max(0.01, multiCombinedProduct)).toFixed(2)
+  );
+
+  // =========================================================================
+  // MODE 2: Same-Game Super Combinada ("Criar Aposta" with exact joint Poisson!)
+  // =========================================================================
+  const sameGameCombos: SuperSameGameCombo[] = [];
+
+  for (const profile of profiles) {
+    const { match, poisson } = profile.ctx;
+    const lambdaH = poisson.expectedGoalsHome;
+    const lambdaA = poisson.expectedGoalsAway;
+
+    const evalJointProb = (picks: EvaluatedMarket[]): number => {
+      const scorePreds = picks.map((p) => p.pred).filter((fn): fn is ScorePred => Boolean(fn));
+      let jointGoalProb = 1;
+      if (scorePreds.length > 0) {
+        let sum = 0;
+        for (let i = 0; i <= 8; i++) {
+          const ph = poissonPmf(lambdaH, i);
+          for (let j = 0; j <= 8; j++) {
+            if (scorePreds.every((fn) => fn(i, j))) {
+              sum += ph * poissonPmf(lambdaA, j);
+            }
+          }
+        }
+        jointGoalProb = sum;
+      }
+      const indepProb = picks
+        .filter((p) => !p.pred)
+        .reduce((acc, p) => acc * (p.probabilityPct / 100), 1);
+
+      return jointGoalProb * indepProb;
+    };
+
+    const topRes = (profile.allOptionsByCategory.result || []).slice(0, 3);
+    const topGoals = (profile.allOptionsByCategory.goals || []).slice(0, 3);
+    const topBtts = (profile.allOptionsByCategory.btts || []).slice(0, 2);
+    const bestCards = profile.bestByCategory.cards;
+    const bestCorners = profile.bestByCategory.corners;
+
+    let bestComboPicks: EvaluatedMarket[] = [];
+    let bestComboJoint = 0;
+    let bestComboScore = -Infinity;
+
+    const tryCombo = (picks: EvaluatedMarket[]) => {
+      if (picks.length < 3) return;
+      if (picks.some((p) => p.probabilityPct < 55)) return;
+      const joint = evalJointProb(picks);
+      const jointPct = joint * 100;
+      if (jointPct < 24) return;
+      const avgPct =
+        picks.reduce((acc, p) => acc + p.probabilityPct, 0) / picks.length;
+      const hasCards = picks.some((p) => p.category === 'cards');
+      const hasBtts = picks.some((p) => p.category === 'btts');
+      // Reward high joint probability, 4-market depth when coherent, and card/btts coverage
+      const comboScore =
+        jointPct * 1.15 +
+        avgPct * 0.4 +
+        (picks.length === 4 && jointPct >= 34 ? 10 : 0) +
+        (hasCards ? 5 : 0) +
+        (hasBtts ? 3 : 0);
+
+      if (comboScore > bestComboScore) {
+        bestComboScore = comboScore;
+        bestComboJoint = joint;
+        bestComboPicks = picks;
+      }
+    };
+
+    for (const r of topRes) {
+      for (const g of topGoals) {
+        if (bestCards) {
+          tryCombo([r, g, bestCards]);
+          for (const b of topBtts) {
+            tryCombo([r, g, b, bestCards]);
+          }
+          if (bestCorners) {
+            tryCombo([r, g, bestCards, bestCorners]);
+          }
+        }
+        for (const b of topBtts) {
+          tryCombo([r, g, b]);
+          if (bestCorners) {
+            tryCombo([r, g, b, bestCorners]);
+          }
+        }
+        if (bestCorners) {
+          tryCombo([r, g, bestCorners]);
+        }
+      }
+    }
+
+    if (bestComboPicks.length >= 3) {
+      const jointPctRaw = bestComboJoint * 100;
+      const combinedProbabilityPct = Math.min(
+        85,
+        Math.max(15, Math.round(jointPctRaw))
+      );
+      const avgLegProbabilityPct = Math.round(
+        bestComboPicks.reduce((acc, p) => acc + p.probabilityPct, 0) /
+          bestComboPicks.length
+      );
+      const fairOddEstimate = Number(
+        (100 / Math.max(5, combinedProbabilityPct)).toFixed(2)
+      );
+
+      const categoryNames = bestComboPicks.map((p) => p.categoryLabel).join(' + ');
+
+      sameGameCombos.push({
+        eventId: match.eventId,
+        leagueSlug: match.leagueSlug,
+        competition: match.compLabel,
+        dateLabel: match.dateLabel,
+        homeTeam: match.homeName,
+        awayTeam: match.awayName,
+        homeShortCode: match.homeAbbr,
+        awayShortCode: match.awayAbbr,
+        homeLogoUrl: match.homeLogoUrl,
+        awayLogoUrl: match.awayLogoUrl,
+        homeColor: match.homeColor,
+        awayColor: match.awayColor,
+        expectedGoalsHome: poisson.expectedGoalsHome,
+        expectedGoalsAway: poisson.expectedGoalsAway,
+        expectedCardsTotal: profile.expectedCardsTotal,
+        expectedCornersTotal: profile.expectedCornersTotal,
+        homeWinPct: poisson.homeWinPct,
+        drawPct: poisson.drawPct,
+        awayWinPct: poisson.awayWinPct,
+        picks: bestComboPicks.map((p) => toSuperLeg(profile, p)),
+        combinedProbabilityPct,
+        avgLegProbabilityPct,
+        fairOddEstimate,
+        summary: `Combinação coerente (${categoryNames}) com probabilidade conjunta exata na matriz de Poisson.`,
+      });
+    }
+  }
+
+  sameGameCombos.sort(
+    (a, b) =>
+      b.combinedProbabilityPct +
+      b.avgLegProbabilityPct * 0.35 -
+      (a.combinedProbabilityPct + a.avgLegProbabilityPct * 0.35)
+  );
+
+  const isTodaySlate = todayCount >= 3;
+  const scopeLabel =
+    todayCount >= 4
+      ? 'Jogos de hoje · Grade mundial'
+      : todayCount > 0
+        ? 'Jogos de hoje e próximos confrontos'
+        : 'Próximos jogos · Grade mundial';
+
+  return {
+    updatedAt: new Date().toISOString(),
+    scopeLabel,
+    isTodaySlate,
+    multiMatchLegs,
+    multiMatchCombinedPct,
+    multiMatchAvgPct,
+    multiMatchFairOdd,
+    sameGameCombos: sameGameCombos.slice(0, 3),
+    sourceUrl: 'https://www.espn.com/soccer/scoreboard',
+  };
+}
+
 function normalizeTeamText(value: string): string {
   return value
     .normalize('NFD')
@@ -1872,14 +3107,16 @@ export function evaluateMultipleMarketOutcome(
     return homeGoals >= 1 && awayGoals >= 1 ? 'won' : 'lost';
   }
 
-  // Dupla chance (1X / X2 / 12)
+  // Dupla chance (1X / X2 / 12 / Casa ou Fora)
   if (
     m.includes('dupla chance') ||
     m.includes('hipotese dupla') ||
     m.includes('ou empate') ||
+    m.includes('casa ou fora') ||
+    m.includes('sem empate') ||
     /\b(1x|x2|12)\b/.test(m)
   ) {
-    if (/\b12\b/.test(m)) {
+    if (/\b12\b/.test(m) || m.includes('casa ou fora') || m.includes('sem empate')) {
       return homeGoals !== awayGoals ? 'won' : 'lost';
     }
     if ((h && m.includes(h)) || /\b1x\b/.test(m)) {

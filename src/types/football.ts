@@ -301,6 +301,61 @@ export interface SerieAMultipleTip {
   sourceUrl: string;
 }
 
+export type SuperTipMarketCategory =
+  | 'result'
+  | 'goals'
+  | 'btts'
+  | 'cards'
+  | 'corners';
+
+export interface SuperCombinedLeg extends SerieAMultipleLeg {
+  category: SuperTipMarketCategory;
+  categoryLabel: string;
+  statHighlight: string;
+  fairOdd: number;
+  expectedCardsTotal?: number | null;
+  expectedCornersTotal?: number | null;
+}
+
+export interface SuperSameGameCombo {
+  eventId: string;
+  leagueSlug: string;
+  competition: string;
+  dateLabel: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeShortCode: string;
+  awayShortCode: string;
+  homeLogoUrl?: string;
+  awayLogoUrl?: string;
+  homeColor?: string;
+  awayColor?: string;
+  expectedGoalsHome: number;
+  expectedGoalsAway: number;
+  expectedCardsTotal: number | null;
+  expectedCornersTotal: number | null;
+  homeWinPct: number;
+  drawPct: number;
+  awayWinPct: number;
+  picks: SuperCombinedLeg[];
+  combinedProbabilityPct: number;
+  avgLegProbabilityPct: number;
+  fairOddEstimate: number;
+  summary: string;
+}
+
+export interface SuperCombinedTip {
+  updatedAt: string;
+  scopeLabel: string;
+  isTodaySlate: boolean;
+  multiMatchLegs: SuperCombinedLeg[];
+  multiMatchCombinedPct: number;
+  multiMatchAvgPct: number;
+  multiMatchFairOdd: number;
+  sameGameCombos: SuperSameGameCombo[];
+  sourceUrl: string;
+}
+
 export interface MultipleHistoryLeg extends SerieAMultipleLeg {
   odd: number;
   status: MultipleLegStatus;

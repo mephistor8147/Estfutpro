@@ -9,6 +9,7 @@ import {
   getFixturesService,
   getLiveScoresService,
   getSerieAMultipleService,
+  getSuperCombinedTipService,
   parseBetSlipImageService,
   resolveApiError,
   resolveGeminiApiKey,
@@ -147,6 +148,30 @@ async function startServer() {
         'Não foi possível calcular a múltipla desta competição agora.'
       );
       console.error('Error building multiple tip:', error?.message || error);
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.all('/api/super-combined-tip', async (req, res) => {
+    try {
+      const forceRefresh =
+        Boolean(req.body?.forceRefresh) || req.query?.refresh === '1';
+      const tip = await getSuperCombinedTipService(forceRefresh);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(tip);
+    } catch (error: any) {
+      if (error?.message === 'NO_SUPER_COMBINED_MATCHES') {
+        res.status(404).json({
+          error:
+            'Nenhum confronto futuro encontrado no calendário oficial neste momento para montar a Super Dica Combinada.',
+        });
+        return;
+      }
+      const { status, message } = resolveApiError(
+        error,
+        'Não foi possível calcular a Super Dica Combinada agora.'
+      );
+      console.error('Error building super combined tip:', error?.message || error);
       res.status(status).json({ error: message });
     }
   });
