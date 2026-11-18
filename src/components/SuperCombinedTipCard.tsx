@@ -1,16 +1,27 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
   Bookmark,
   BookmarkCheck,
+  Check,
+  Copy,
+  Download,
   Flame,
   Layers,
+  Loader2,
   RefreshCw,
+  Share2,
   ShieldCheck,
   Target,
+  X,
 } from 'lucide-react';
 import { CompetitionFlag } from './CompetitionFlag.tsx';
 import { TeamCrest } from './TeamCrest.tsx';
+import {
+  buildSuperCombinedWhatsappText,
+  generateSuperCombinedTipPng,
+  type SuperCombinedImagePayload,
+} from '../lib/shareMultipleImage.ts';
 import type {
   SuperCombinedLeg,
   SuperCombinedTip,
@@ -110,6 +121,13 @@ export const SuperCombinedTipCard: React.FC<SuperCombinedTipCardProps> = ({
 }) => {
   const [viewMode, setViewMode] = useState<SuperTipViewMode>('multi');
   const [selectedMatchIdx, setSelectedMatchIdx] = useState(0);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [generatedPreview, setGeneratedPreview] = useState<{
+    dataUrl: string;
+    fileName: string;
+  } | null>(null);
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+  const [copiedText, setCopiedText] = useState(false);
 
   const safeMatchIdx = useMemo(() => {
     if (!tip || tip.sameGameCombos.length === 0) return 0;
@@ -118,6 +136,12 @@ export const SuperCombinedTipCard: React.FC<SuperCombinedTipCardProps> = ({
 
   const activeSameGame: SuperSameGameCombo | null =
     tip?.sameGameCombos?.[safeMatchIdx] ?? null;
+
+  useEffect(() => {
+    setGeneratedPreview(null);
+    setShareFeedback(null);
+    setCopiedText(false);
+  }, [tip, viewMode, safeMatchIdx]);
 
   const updatedTime = tip?.updatedAt
     ? new Intl.DateTimeFormat('pt-BR', {
@@ -188,6 +212,107 @@ export const SuperCombinedTipCard: React.FC<SuperCombinedTipCardProps> = ({
   const hasMulti = Boolean(tip && tip.multiMatchLegs.length > 0);
   const effectiveMode: SuperTipViewMode =
     viewMode === 'same-game' && !hasSameGame && hasMulti ? 'multi' : viewMode;
+
+  const shareImagePayload = useMemo<SuperCombinedImagePayload | null>(() => {
+    if (!tip) return null;
+    if (effectiveMode === 'same-game' && activeSameGame) {
+      return {
+        mode: 'same-game',
+        scopeLabel: tip.scopeLabel,
+        updatedAt: tip.updatedAt,
+        legs: activeSameGame.picks,
+        sameGame: activeSameGame,
+        combinedProbabilityPct: activeSameGame.combinedProbabilityPct,
+        avgProbabilityPct: activeSameGame.avgLegProbabilityPct,
+        fairOddEstimate: activeSameGame.fairOddEstimate,
+      };
+    }
+    if (tip.multiMatchLegs.length === 0) return null;
+    return {
+      mode: 'multi',
+      scopeLabel: tip.scopeLabel,
+      updatedAt: tip.updatedAt,
+      legs: tip.multiMatchLegs,
+      sameGame: null,
+      combinedProbabilityPct: tip.multiMatchCombinedPct,
+      avgProbabilityPct: tip.multiMatchAvgPct,
+      fairOddEstimate: tip.multiMatchFairOdd,
+    };
+  }, [tip, effectiveMode, activeSameGame]);
+
+  const whatsappHref = useMemo(() => {
+    if (!shareImagePayload) return '#';
+    const text = buildSuperCombinedWhatsappText(shareImagePayload);
+    return `https://wa.me/?text=${encodeURIComponent(text)}`;
+  }, [shareImagePayload]);
+
+  const triggerPngDownload = (dataUrl: string, fileName: string) => {
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleShareWhatsapp = async () => {
+    if (!shareImagePayload) return;
+    setIsGeneratingImage(true);
+    setShareFeedback(null);
+    try {
+      const { blob, dataUrl, fileName } = await generateSuperCombinedTipPng(
+        shareImagePayload
+      );
+      setGeneratedPreview({ dataUrl, fileName });
+
+      const summaryText = buildSuperCombinedWhatsappText(shareImagePayload);
+      const imageFile = new File([blob], fileName, { type: 'image/png' });
+
+      if (
+        typeof navigator !== 'undefined' &&
+        typeof navigator.share === 'function' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [imageFile] })
+      ) {
+        try {
+          await navigator.share({
+            title: 'Super Dica Combinada · CampoStats',
+            text: summaryText,
+            files: [imageFile],
+          });
+          setShareFeedback('Imagem pronta e compartilhada no WhatsApp.');
+          return;
+        } catch (shareErr: any) {
+          if (shareErr?.name === 'AbortError') {
+            return;
+          }
+          // Fall through to PNG download + WhatsApp link fallback
+        }
+      }
+
+      triggerPngDownload(dataUrl, fileName);
+      setShareFeedback(
+        'Imagem PNG baixada! Anexe a imagem no WhatsApp ou abra o envio com o resumo abaixo.'
+      );
+    } catch {
+      setShareFeedback('Não foi possível gerar a imagem para compartilhamento agora.');
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  };
+
+  const handleCopyWhatsappText = async () => {
+    if (!shareImagePayload || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(
+        buildSuperCombinedWhatsappText(shareImagePayload)
+      );
+      setCopiedText(true);
+      setTimeout(() => setCopiedText(false), 2000);
+    } catch {
+      // Ignore clipboard failures
+    }
+  };
 
   return (
     <section
@@ -657,54 +782,147 @@ export const SuperCombinedTipCard: React.FC<SuperCombinedTipCardProps> = ({
           )}
 
           {/* Footer Action Bar (Always-Visible Responsive Buttons) */}
-          <div className="px-4 sm:px-5 py-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-            <div className="flex flex-wrap items-center gap-2">
-              {activePayload && (
-                <button
-                  type="button"
-                  onClick={() => onSaveToHistory(activePayload)}
-                  disabled={isCurrentSaved}
-                  className={`flex-1 sm:flex-initial min-h-[44px] px-4 py-2 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                    isCurrentSaved
-                      ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/80'
-                      : 'bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white'
-                  }`}
-                >
-                  {isCurrentSaved ? (
-                    <>
-                      <BookmarkCheck className="w-4 h-4 shrink-0" />
-                      <span>Salva no histórico</span>
-                    </>
-                  ) : (
-                    <>
-                      <Bookmark className="w-4 h-4 shrink-0" />
-                      <span>Salvar no histórico</span>
-                    </>
-                  )}
-                </button>
-              )}
+          <div className="px-4 sm:px-5 py-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/30 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                {shareImagePayload && (
+                  <button
+                    type="button"
+                    onClick={handleShareWhatsapp}
+                    disabled={isGeneratingImage}
+                    className="flex-1 sm:flex-initial min-h-[44px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
+                  >
+                    {isGeneratingImage ? (
+                      <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    ) : (
+                      <Share2 className="w-4 h-4 shrink-0" />
+                    )}
+                    <span>Compartilhar imagem no WhatsApp</span>
+                  </button>
+                )}
 
-              {isCurrentSaved && (
-                <button
-                  type="button"
-                  onClick={onOpenHistory}
-                  className="flex-1 sm:flex-initial min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                >
-                  <span>Acompanhar ao vivo</span>
-                  <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-                </button>
-              )}
+                {activePayload && (
+                  <button
+                    type="button"
+                    onClick={() => onSaveToHistory(activePayload)}
+                    disabled={isCurrentSaved}
+                    className={`flex-1 sm:flex-initial min-h-[44px] px-4 py-2 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 border ${
+                      isCurrentSaved
+                        ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/80'
+                        : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    {isCurrentSaved ? (
+                      <>
+                        <BookmarkCheck className="w-4 h-4 shrink-0" />
+                        <span>Salva no histórico</span>
+                      </>
+                    ) : (
+                      <>
+                        <Bookmark className="w-4 h-4 shrink-0" />
+                        <span>Salvar no histórico</span>
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {isCurrentSaved && (
+                  <button
+                    type="button"
+                    onClick={onOpenHistory}
+                    className="flex-1 sm:flex-initial min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                  >
+                    <span>Acompanhar ao vivo</span>
+                    <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+                  </button>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={onOpenTipsMenu}
+                className="w-full sm:w-auto min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              >
+                <Flame className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                <span>Abrir Dicas quentes</span>
+                <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+              </button>
             </div>
 
-            <button
-              type="button"
-              onClick={onOpenTipsMenu}
-              className="w-full sm:w-auto min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-            >
-              <Flame className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
-              <span>Abrir Dicas quentes</span>
-              <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-            </button>
+            {/* Inline WhatsApp Image Preview + Fallback Links */}
+            {(shareFeedback || generatedPreview) && (
+              <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex flex-col min-[380px]:flex-row items-start min-[380px]:items-center gap-3 min-w-0 w-full">
+                  {generatedPreview && (
+                    <img
+                      src={generatedPreview.dataUrl}
+                      alt="Prévia da imagem da Super Dica Combinada para WhatsApp"
+                      referrerPolicy="no-referrer"
+                      className="w-16 h-20 object-cover rounded-lg border border-slate-300 dark:border-slate-700 shrink-0"
+                    />
+                  )}
+                  <div className="min-w-0 space-y-2 flex-1">
+                    {shareFeedback && (
+                      <p className="text-xs font-medium text-slate-700 dark:text-slate-200">
+                        {shareFeedback}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <a
+                        href={whatsappHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="min-h-[44px] px-3.5 py-2 rounded-lg bg-[#25D366] hover:bg-[#1ebe5d] text-slate-950 text-xs font-bold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                      >
+                        <Share2 className="w-3.5 h-3.5 shrink-0" />
+                        <span>Abrir WhatsApp</span>
+                      </a>
+
+                      {generatedPreview && (
+                        <a
+                          href={generatedPreview.dataUrl}
+                          download={generatedPreview.fileName}
+                          className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                        >
+                          <Download className="w-3.5 h-3.5 shrink-0" />
+                          <span>Baixar PNG</span>
+                        </a>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={handleCopyWhatsappText}
+                        className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                      >
+                        {copiedText ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                            <span>Copiado</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5 shrink-0" />
+                            <span>Copiar texto</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGeneratedPreview(null);
+                    setShareFeedback(null);
+                  }}
+                  aria-label="Fechar prévia de compartilhamento"
+                  className="min-h-[44px] min-w-[44px] rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 inline-flex items-center justify-center self-end sm:self-center shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
         </>
       )}
