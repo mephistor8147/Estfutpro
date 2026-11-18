@@ -350,6 +350,8 @@ export interface ParsedBetSlipLeg {
 
 export interface ParsedBetSlipResponse {
   isBetSlip: boolean;
+  needsLocalOcr?: boolean;
+  extractionMode?: 'vision' | 'ocr';
   bookmaker?: string;
   title: string;
   competition: string;

@@ -192,13 +192,19 @@ async function startServer() {
       const imageBase64 = String(req.body?.imageBase64 || '').trim();
       const mimeType =
         typeof req.body?.mimeType === 'string' ? req.body.mimeType : undefined;
+      const ocrText =
+        typeof req.body?.ocrText === 'string' ? req.body.ocrText.trim() : undefined;
 
-      if (!imageBase64) {
+      if (!imageBase64 && !ocrText) {
         res.status(400).json({ error: 'Envie uma imagem do bilhete de aposta.' });
         return;
       }
 
-      const parsed = await parseBetSlipImageService({ imageBase64, mimeType });
+      const parsed = await parseBetSlipImageService({
+        imageBase64: imageBase64 || undefined,
+        mimeType,
+        ocrText,
+      });
       res.setHeader('Cache-Control', 'no-store');
       res.json(parsed);
     } catch (error: any) {

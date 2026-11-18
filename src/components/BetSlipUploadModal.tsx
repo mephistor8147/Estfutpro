@@ -10,7 +10,9 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { parseBetSlipOcrText } from '../lib/betSlipTextParser.ts';
 import { prepareBetSlipImageForUpload } from '../lib/imageUploadUtils.ts';
+import { extractTextFromBetSlipImage } from '../lib/localBetSlipOcr.ts';
 import { formatBrlCurrency } from '../lib/shareMultipleImage.ts';
 import { CompetitionFlag } from './CompetitionFlag.tsx';
 import { TeamCrest } from './TeamCrest.tsx';
@@ -108,11 +110,16 @@ export const BetSlipUploadModal: React.FC<BetSlipUploadModalProps> = ({
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [preparedPayload, setPreparedPayload] = useState<{
+    dataUrl: string;
     base64: string;
     mimeType: string;
   } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isReading, setIsReading] = useState(false);
+  const [readingLabel, setReadingLabel] = useState<string>(
+    'Lendo bilhete, identificando jogos e buscando brasões...'
+  );
+  const [ocrProgress, setOcrProgress] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [notesMsg, setNotesMsg] = useState<string | null>(null);
   const [showReview, setShowReview] = useState(false);
@@ -132,6 +139,8 @@ export const BetSlipUploadModal: React.FC<BetSlipUploadModalProps> = ({
     setPreparedPayload(null);
     setIsDragging(false);
     setIsReading(false);
+    setReadingLabel('Lendo bilhete, identificando jogos e buscando brasões...');
+    setOcrProgress(null);
     setErrorMsg(null);
     setNotesMsg(null);
     setShowReview(false);
@@ -184,24 +193,99 @@ export const BetSlipUploadModal: React.FC<BetSlipUploadModalProps> = ({
     setShowReview(true);
   }, []);
 
-  const runImageExtraction = useCallback(
-    async (base64: string, mimeType: string) => {
-      setIsReading(true);
-      setErrorMsg(null);
-      setNotesMsg(null);
+  const runLocalOcrPipeline = useCallback(
+    async (dataUrl: string) => {
+      setReadingLabel('Lendo texto do bilhete (OCR local)...');
+      setOcrProgress(5);
+      const ocr = await extractTextFromBetSlipImage(dataUrl, (pct) => {
+        setOcrProgress(pct);
+      });
+
+      const trimmed = ocr.text.trim();
+      if (!trimmed) {
+        applyParsedResponse({
+          isBetSlip: false,
+          extractionMode: 'ocr',
+          title: 'Bilhete importado',
+          competition: 'Bilhete importado',
+          leagueSlug: 'world',
+          stake: 0,
+          totalOdd: 1,
+          potentialReturn: 0,
+          status: 'pending',
+          legs: [],
+          notes:
+            'Não foi possível detectar texto legível nesta imagem. Envie um print mais nítido ou preencha manualmente.',
+        });
+        return;
+      }
+
+      setReadingLabel('Identificando jogos e buscando brasões oficiais...');
+      setOcrProgress(null);
+
       try {
-        const res = await fetch('/api/parse-bet-image', {
+        const enrichRes = await fetch('/api/parse-bet-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageBase64: base64, mimeType }),
+          body: JSON.stringify({ ocrText: trimmed }),
         });
-        const json = await res.json();
-        if (!res.ok) {
-          throw new Error(
-            json?.error || 'Não foi possível ler os dados da imagem agora.'
-          );
+        if (enrichRes.ok) {
+          const enrichedJson = (await enrichRes.json()) as ParsedBetSlipResponse;
+          applyParsedResponse(enrichedJson);
+          return;
         }
-        applyParsedResponse(json as ParsedBetSlipResponse);
+      } catch {
+        // Fall through to offline client parser if network drops
+      }
+
+      applyParsedResponse(parseBetSlipOcrText(trimmed));
+    },
+    [applyParsedResponse]
+  );
+
+  const runImageExtraction = useCallback(
+    async (payload: { dataUrl: string; base64: string; mimeType: string }) => {
+      setShowReview(false);
+      setIsReading(true);
+      setReadingLabel('Lendo bilhete, identificando jogos e buscando brasões...');
+      setOcrProgress(null);
+      setErrorMsg(null);
+      setNotesMsg(null);
+
+      try {
+        let shouldRunLocalOcr = false;
+
+        try {
+          const res = await fetch('/api/parse-bet-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              imageBase64: payload.base64,
+              mimeType: payload.mimeType,
+            }),
+          });
+          const json = (await res.json()) as ParsedBetSlipResponse & {
+            error?: string;
+          };
+
+          if (res.ok) {
+            if (json.needsLocalOcr) {
+              shouldRunLocalOcr = true;
+            } else {
+              applyParsedResponse(json);
+              return;
+            }
+          } else {
+            // Fallback to local OCR on any server key/quota error so Vercel deployments never fail
+            shouldRunLocalOcr = true;
+          }
+        } catch {
+          shouldRunLocalOcr = true;
+        }
+
+        if (shouldRunLocalOcr) {
+          await runLocalOcrPipeline(payload.dataUrl);
+        }
       } catch (err: any) {
         setErrorMsg(
           err?.message ||
@@ -209,9 +293,10 @@ export const BetSlipUploadModal: React.FC<BetSlipUploadModalProps> = ({
         );
       } finally {
         setIsReading(false);
+        setOcrProgress(null);
       }
     },
-    [applyParsedResponse]
+    [applyParsedResponse, runLocalOcrPipeline]
   );
 
   const handleImageBlob = useCallback(
@@ -220,12 +305,14 @@ export const BetSlipUploadModal: React.FC<BetSlipUploadModalProps> = ({
       setNotesMsg(null);
       try {
         const prepared = await prepareBetSlipImageForUpload(blob);
-        setPreviewUrl(prepared.dataUrl);
-        setPreparedPayload({
+        const nextPayload = {
+          dataUrl: prepared.dataUrl,
           base64: prepared.base64,
           mimeType: prepared.mimeType,
-        });
-        await runImageExtraction(prepared.base64, prepared.mimeType);
+        };
+        setPreviewUrl(prepared.dataUrl);
+        setPreparedPayload(nextPayload);
+        await runImageExtraction(nextPayload);
       } catch (err: any) {
         setErrorMsg(
           err?.message || 'Não foi possível carregar o arquivo de imagem selecionado.'
@@ -560,9 +647,23 @@ export const BetSlipUploadModal: React.FC<BetSlipUploadModalProps> = ({
                       className="w-full max-h-56 object-contain"
                     />
                   </div>
-                  <div className="inline-flex items-center justify-center gap-2 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
-                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                    <span>Lendo bilhete, identificando jogos e buscando brasões...</span>
+                  <div className="space-y-2 max-w-xs mx-auto">
+                    <div className="inline-flex items-center justify-center gap-2 text-sm font-semibold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                      <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                      <span>
+                        {ocrProgress !== null
+                          ? `${readingLabel} ${ocrProgress}%`
+                          : readingLabel}
+                      </span>
+                    </div>
+                    {ocrProgress !== null && (
+                      <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-600 dark:bg-emerald-500 transition-all duration-200"
+                          style={{ width: `${ocrProgress}%` }}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -603,12 +704,7 @@ export const BetSlipUploadModal: React.FC<BetSlipUploadModalProps> = ({
                     {preparedPayload && (
                       <button
                         type="button"
-                        onClick={() =>
-                          runImageExtraction(
-                            preparedPayload.base64,
-                            preparedPayload.mimeType
-                          )
-                        }
+                        onClick={() => runImageExtraction(preparedPayload)}
                         className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
                       >
                         <RefreshCw className="w-3.5 h-3.5 shrink-0" />
@@ -689,12 +785,7 @@ export const BetSlipUploadModal: React.FC<BetSlipUploadModalProps> = ({
                   {preparedPayload && (
                     <button
                       type="button"
-                      onClick={() =>
-                        runImageExtraction(
-                          preparedPayload.base64,
-                          preparedPayload.mimeType
-                        )
-                      }
+                      onClick={() => runImageExtraction(preparedPayload)}
                       disabled={isReading}
                       aria-label="Reanalisar imagem"
                       className="min-h-[44px] min-w-[44px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center transition-colors shrink-0"

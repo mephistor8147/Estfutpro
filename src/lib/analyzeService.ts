@@ -26,6 +26,7 @@ import {
   type MultipleLegCheckInput,
   type MultipleLegCheckResult,
 } from './espnProvider.js';
+import { parseBetSlipOcrText } from './betSlipTextParser.js';
 import { MULTIPLE_COMPETITION_SET } from './competitions.js';
 
 const FIXTURES_TTL_MS = 30 * 60 * 1000;
@@ -473,27 +474,27 @@ export function resolveApiError(error: any, fallbackMessage: string): { status: 
     return {
       status: 404,
       message:
-        'Não foi possível localizar um dos clubes na base ao vivo da ESPN. Verifique a grafia oficial dos times ou configure GEMINI_API_KEY nas variáveis de ambiente da Vercel.',
+        'Não foi possível localizar um dos clubes na base esportiva ao vivo. Verifique a grafia oficial dos times e tente novamente.',
     };
   }
   if (error?.message === 'GEMINI_API_KEY_MISSING') {
     return {
-      status: 400,
+      status: 503,
       message:
-        'Configure a variável GEMINI_API_KEY nas Environment Variables do projeto na Vercel (e faça Redeploy) para habilitar a busca web alternativa.',
+        'Serviço auxiliar indisponível neste servidor no momento. Tente novamente ou use o modo local.',
     };
   }
   if (status === 429) {
     return {
       status: 429,
       message:
-        'Cota de consultas da API Gemini atingida temporariamente (429). Aguarde alguns instantes ou configure uma chave com faturamento habilitado.',
+        'Limite temporário de consultas atingido (429). Aguarde alguns instantes e tente novamente.',
     };
   }
   if (status === 403 || status === 400) {
     return {
       status,
-      message: 'Verifique a chave da API Gemini configurada nas variáveis de ambiente.',
+      message: fallbackMessage,
     };
   }
   return { status: 500, message: fallbackMessage };
@@ -1087,10 +1088,50 @@ function makeShortCodeFromTeam(name: string): string {
   return (clean || 'TIM').slice(0, 3);
 }
 
+function buildNeedsLocalOcrResponse(): ParsedBetSlipResponse {
+  return {
+    isBetSlip: false,
+    needsLocalOcr: true,
+    title: 'Bilhete importado',
+    competition: 'Bilhete importado',
+    leagueSlug: 'world',
+    stake: 0,
+    totalOdd: 1,
+    potentialReturn: 0,
+    status: 'pending',
+    legs: [],
+  };
+}
+
 export async function parseBetSlipImageService(params: {
-  imageBase64: string;
+  imageBase64?: string;
   mimeType?: string;
+  ocrText?: string;
 }): Promise<ParsedBetSlipResponse> {
+  // Mode 1: Client-side OCR text sent for structured parsing + official ESPN crest/league enrichment
+  const rawOcrText = typeof params.ocrText === 'string' ? params.ocrText.trim() : '';
+  if (rawOcrText.length > 0) {
+    const parsedOcr = parseBetSlipOcrText(rawOcrText);
+    if (!parsedOcr.isBetSlip || parsedOcr.legs.length === 0) {
+      return parsedOcr;
+    }
+    const enrichedLegs = await enrichParsedBetLegsViaEspn(parsedOcr.legs);
+    const distinctSlugs = Array.from(
+      new Set(
+        enrichedLegs
+          .map((l) => l.leagueSlug)
+          .filter((s): s is string => Boolean(s))
+      )
+    );
+    return {
+      ...parsedOcr,
+      extractionMode: 'ocr',
+      leagueSlug: distinctSlugs.length === 1 ? distinctSlugs[0] : parsedOcr.leagueSlug,
+      legs: enrichedLegs,
+    };
+  }
+
+  // Mode 2: Image upload
   const rawInput = String(params.imageBase64 || '').trim();
   if (!rawInput) {
     throw new Error('IMAGE_REQUIRED');
@@ -1116,7 +1157,11 @@ export async function parseBetSlipImageService(params: {
     throw new Error('IMAGE_TOO_LARGE');
   }
 
-  const ai = getAiClient();
+  // If GEMINI_API_KEY is not configured on this deployment (e.g. Vercel without key),
+  // seamlessly delegate real OCR extraction to the browser's Tesseract.js engine.
+  if (!resolveGeminiApiKey()) {
+    return buildNeedsLocalOcrResponse();
+  }
 
   const prompt = `Você é um especialista em leitura de bilhetes e comprovantes de apostas esportivas de futebol (Bet365, Betano, Superbet, KTO, Sportingbet, Betnacional, Novibet, Pixbet, EstrelaBet, prints de dicas/múltiplas, etc.).
 Analise cuidadosamente a imagem anexada e extraia TODAS as partidas de futebol, mercados/palpites, odds, valor apostado (stake), retorno potencial e status (ganha/perdida/pendente) que estejam realmente visíveis na imagem.
@@ -1135,29 +1180,40 @@ REGRAS ESTRITAS:
 5. Se a aposta tiver apenas 1 jogo e a odd individual não aparecer separada da odd total, use a odd total nesse jogo.
 6. Identifique ícones ou rótulos visuais de resultado por jogo (check verde / "Ganha" => "won"; X vermelho / "Perdida" => "lost"; relógio / "Em aberto" / ao vivo => "pending").`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-4-hydrogen',
-    contents: {
-      parts: [
-        {
-          inlineData: {
-            mimeType,
-            data: base64,
+  let rawText = '{}';
+  try {
+    const ai = getAiClient();
+    const response = await ai.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType,
+              data: base64,
+            },
           },
-        },
-        {
-          text: prompt,
-        },
-      ],
-    },
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: betSlipExtractionSchema,
-      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-    },
-  });
+          {
+            text: prompt,
+          },
+        ],
+      },
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: betSlipExtractionSchema,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
+    });
+    rawText = (response.text ?? '{}').trim();
+  } catch (err: any) {
+    // If Gemini API fails (e.g. invalid key or quota 429 on Vercel), gracefully delegate to local OCR
+    console.warn(
+      'Gemini vision unavailable for bet slip, falling back to local OCR:',
+      err?.message || err
+    );
+    return buildNeedsLocalOcrResponse();
+  }
 
-  const rawText = (response.text ?? '{}').trim();
   let parsed: any;
   try {
     parsed = JSON.parse(rawText);
@@ -1285,6 +1341,7 @@ REGRAS ESTRITAS:
 
   return {
     isBetSlip: true,
+    extractionMode: 'vision',
     bookmaker,
     title: competitionLabel,
     competition: competitionLabel,

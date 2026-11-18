@@ -15,17 +15,22 @@ export default async function handler(req: VercelReq, res: VercelRes) {
     const body = await readJsonBody<{
       imageBase64?: string;
       mimeType?: string;
+      ocrText?: string;
     }>(req);
 
     const imageBase64 = String(body?.imageBase64 || '').trim();
-    if (!imageBase64) {
+    const ocrText =
+      typeof body?.ocrText === 'string' ? body.ocrText.trim() : undefined;
+
+    if (!imageBase64 && !ocrText) {
       sendJson(res, 400, { error: 'Envie uma imagem do bilhete de aposta.' });
       return;
     }
 
     const parsed = await parseBetSlipImageService({
-      imageBase64,
+      imageBase64: imageBase64 || undefined,
       mimeType: typeof body?.mimeType === 'string' ? body.mimeType : undefined,
+      ocrText,
     });
 
     res.setHeader('Cache-Control', 'no-store');
