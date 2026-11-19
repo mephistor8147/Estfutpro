@@ -1051,7 +1051,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 Nenhuma previsão salva ainda
               </h3>
               <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
-                Analise um confronto na aba Analisador e toque em Salvar previsão para acompanhar sua taxa de acerto por campeonato.
+                Analise um confronto na aba Modelos e toque em Salvar previsão para acompanhar sua taxa de acerto por campeonato.
               </p>
             </section>
           ) : (

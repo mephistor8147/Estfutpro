@@ -396,7 +396,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                 size="sm"
               />
               <span>
-                {activeCompOption.label} · Combinada calculada pelo modelo Poisson com jogos de competições pelo mundo.
+                {activeCompOption.label} · Combinada calculada pelo modelo Poisson com jogos de campeonatos de todo o mundo.
               </span>
             </p>
           )}
@@ -579,7 +579,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                 onClick={() => onChangeLeague('world')}
                 className="flex-1 sm:flex-initial min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold text-center whitespace-nowrap"
               >
-                Principais do Mundo
+                Todo o Mundo (Misto)
               </button>
             )}
             {effectiveDayFilter !== 'all' &&

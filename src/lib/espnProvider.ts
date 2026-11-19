@@ -49,8 +49,11 @@ const LEAGUE_SLUG_MAP: { match: RegExp; slug: string; label: string }[] = [
   { match: /brasileir[aã]o|s[eé]rie a|brasil/i, slug: 'bra.1', label: 'Brasileirão Série A' },
   { match: /libertadores/i, slug: 'conmebol.libertadores', label: 'Copa Libertadores' },
   { match: /sul-?americana|sudamericana/i, slug: 'conmebol.sudamericana', label: 'Copa Sul-Americana' },
+  { match: /championship|ingl[eê]s.*2/i, slug: 'eng.2', label: 'EFL Championship' },
   { match: /premier\s*league|ingl[eê]s/i, slug: 'eng.1', label: 'Premier League' },
+  { match: /la\s*liga\s*2|espanhol.*2/i, slug: 'esp.2', label: 'La Liga 2' },
   { match: /la\s*liga|espanhol/i, slug: 'esp.1', label: 'La Liga' },
+  { match: /conference\s*league/i, slug: 'uefa.europa.conf', label: 'UEFA Conference League' },
   { match: /champions/i, slug: 'uefa.champions', label: 'UEFA Champions League' },
   { match: /europa\s*league/i, slug: 'uefa.europa', label: 'UEFA Europa League' },
   { match: /nations\s*league/i, slug: 'uefa.nations', label: 'UEFA Nations League' },
@@ -58,7 +61,18 @@ const LEAGUE_SLUG_MAP: { match: RegExp; slug: string; label: string }[] = [
   { match: /bundesliga|alem[aã]o/i, slug: 'ger.1', label: 'Bundesliga' },
   { match: /ligue\s*1|franc[eê]s/i, slug: 'fra.1', label: 'Ligue 1' },
   { match: /portug|primeira liga/i, slug: 'por.1', label: 'Liga Portugal' },
+  { match: /eredivisie|holand/i, slug: 'ned.1', label: 'Eredivisie (Holanda)' },
+  { match: /belg|pro league/i, slug: 'bel.1', label: 'Pro League (Bélgica)' },
+  { match: /turqu|s[uü]per\s*lig/i, slug: 'tur.1', label: 'Süper Lig (Turquia)' },
+  { match: /esc[oó]cia|scottish/i, slug: 'sco.1', label: 'Premiership (Escócia)' },
   { match: /argentin/i, slug: 'arg.1', label: 'Liga Profesional Argentina' },
+  { match: /liga\s*mx|m[eé]xico|mexican/i, slug: 'mex.1', label: 'Liga MX (México)' },
+  { match: /col[oô]mbia/i, slug: 'col.1', label: 'Primera A (Colômbia)' },
+  { match: /urugua/i, slug: 'uru.1', label: 'Campeonato Uruguaio' },
+  { match: /chile/i, slug: 'chi.1', label: 'Campeonato Chileno' },
+  { match: /saudi|ar[aá]bia/i, slug: 'ksa.1', label: 'Saudi Pro League' },
+  { match: /j\.?\s*league|jap[aã]o/i, slug: 'jpn.1', label: 'J.League (Japão)' },
+  { match: /a-?league|austr[aá]lia/i, slug: 'aus.1', label: 'A-League (Austrália)' },
   { match: /mls/i, slug: 'usa.1', label: 'MLS' },
 ];
 
@@ -72,22 +86,104 @@ const LEAGUE_LABELS: Record<string, string> = {
   'bra.camp.carioca': 'Campeonato Carioca',
   'bra.camp.mineiro': 'Campeonato Mineiro',
   'bra.camp.gaucho': 'Campeonato Gaúcho',
+  'bra.supercopa_do_brazil': 'Supercopa do Brasil',
   'conmebol.libertadores': 'Copa Libertadores',
   'conmebol.sudamericana': 'Copa Sul-Americana',
+  'conmebol.recopa': 'Recopa Sul-Americana',
+  'conmebol.america': 'Copa América',
   'eng.1': 'Premier League',
+  'eng.2': 'EFL Championship',
+  'eng.3': 'League One (Inglaterra)',
+  'eng.4': 'League Two (Inglaterra)',
+  'eng.5': 'National League (Inglaterra)',
+  'eng.fa': 'FA Cup',
+  'eng.league_cup': 'Copa da Liga Inglesa',
   'esp.1': 'La Liga',
   'esp.2': 'La Liga 2',
+  'esp.copa_del_rey': 'Copa do Rei (Espanha)',
+  'esp.copa_de_la_reina': 'Copa da Rainha (Espanha)',
   'uefa.champions': 'UEFA Champions League',
+  'uefa.wchampions': 'UEFA Champions League Feminina',
   'uefa.europa': 'UEFA Europa League',
+  'uefa.europa.conf': 'UEFA Conference League',
   'uefa.nations': 'UEFA Nations League',
+  'uefa.euro': 'Eurocopa',
   'ita.1': 'Serie A Itália',
+  'ita.2': 'Serie B Itália',
+  'ita.coppa_italia': 'Coppa Italia',
   'ger.1': 'Bundesliga',
+  'ger.2': '2. Bundesliga',
+  'ger.dfb_pokal': 'Copa da Alemanha',
   'fra.1': 'Ligue 1',
+  'fra.2': 'Ligue 2',
+  'fra.w.1': 'Première Ligue (França)',
+  'fra.coupe_de_france': 'Copa da França',
   'por.1': 'Liga Portugal',
+  'por.taca.portugal': 'Taça de Portugal',
+  'ned.1': 'Eredivisie (Holanda)',
+  'ned.2': 'Eerste Divisie (Holanda)',
+  'ned.cup': 'Copa da Holanda',
+  'bel.1': 'Pro League (Bélgica)',
+  'tur.1': 'Süper Lig (Turquia)',
+  'sco.1': 'Premiership (Escócia)',
+  'sco.2': 'Championship (Escócia)',
+  'rus.1': 'Premier League (Rússia)',
+  'gre.1': 'Super League (Grécia)',
+  'aut.1': 'Bundesliga (Áustria)',
+  'den.1': 'Superliga (Dinamarca)',
+  'nor.1': 'Eliteserien (Noruega)',
+  'swe.1': 'Allsvenskan (Suécia)',
   'arg.1': 'Liga Profesional Argentina',
+  'arg.2': 'Primera Nacional (Argentina)',
+  'arg.copa': 'Copa Argentina',
+  'mex.1': 'Liga MX (México)',
+  'mex.2': 'Liga de Expansión (México)',
+  'col.1': 'Primera A (Colômbia)',
+  'col.copa': 'Copa Colômbia',
+  'uru.1': 'Campeonato Uruguaio',
+  'uru.2': 'Segunda Divisão (Uruguai)',
+  'chi.1': 'Campeonato Chileno',
+  'chi.copa_chi': 'Copa Chile',
+  'ecu.1': 'LigaPro (Equador)',
+  'par.1': 'Primera División (Paraguai)',
+  'per.1': 'Liga 1 (Peru)',
+  'bol.1': 'División Profesional (Bolívia)',
+  'ven.1': 'Liga FUTVE (Venezuela)',
+  'crc.1': 'Primera División (Costa Rica)',
+  'hon.1': 'Liga Nacional (Honduras)',
+  'gua.1': 'Liga Nacional (Guatemala)',
+  'slv.1': 'Primera División (El Salvador)',
   'usa.1': 'MLS',
+  'usa.usl.1': 'USL Championship (EUA)',
+  'usa.open': 'US Open Cup',
+  'concacaf.champions': 'CONCACAF Champions Cup',
+  'concacaf.nations.league': 'CONCACAF Nations League',
+  'concacaf.leagues.cup': 'Leagues Cup',
+  'ksa.1': 'Saudi Pro League',
+  'ksa.kings.cup': 'Copa do Rei (Arábia Saudita)',
+  'jpn.1': 'J.League (Japão)',
+  'chn.1': 'Super League (China)',
+  'aus.1': 'A-League (Austrália)',
+  'aus.w.1': 'A-League Feminina (Austrália)',
+  'ind.1': 'Indian Super League',
+  'ind.2': 'I-League (Índia)',
+  'rsa.1': 'Premiership (África do Sul)',
+  'afc.champions': 'AFC Champions League',
+  'afc.cup': 'AFC Cup',
+  'caf.champions': 'CAF Champions League',
+  'caf.confed': 'CAF Confederation Cup',
+  'caf.nations': 'Copa Africana de Nações',
+  'fifa.world': 'Copa do Mundo FIFA',
+  'fifa.cwc': 'Mundial de Clubes FIFA',
   'fifa.friendly': 'Amistosos Internacionais',
   'fifa.worldq.conmebol': 'Eliminatórias Sul-Americanas',
+  'fifa.worldq.uefa': 'Eliminatórias Europeias',
+  'fifa.worldq.concacaf': 'Eliminatórias CONCACAF',
+  'fifa.worldq.afc': 'Eliminatórias Asiáticas',
+  'fifa.worldq.caf': 'Eliminatórias Africanas',
+  'fifa.world.u20': 'Mundial Sub-20 FIFA',
+  'fifa.world.u17': 'Mundial Sub-17 FIFA',
+  'club.friendly': 'Amistosos de Clubes',
 };
 
 function resolveLeagueSlug(competitionInput: string): string | null {
@@ -569,7 +665,19 @@ export async function fetchEspnLiveFixtures(
             'ita.1',
             'ger.1',
             'fra.1',
+            'por.1',
+            'ned.1',
+            'bel.1',
+            'tur.1',
+            'arg.1',
+            'mex.1',
+            'col.1',
+            'uru.1',
+            'usa.1',
+            'ksa.1',
+            'jpn.1',
             'uefa.champions',
+            'uefa.europa',
             'uefa.nations',
             'conmebol.libertadores',
           ];
@@ -1076,8 +1184,23 @@ const WORLD_MIX_LEAGUES = [
   'ita.1',
   'ger.1',
   'fra.1',
+  'por.1',
+  'ned.1',
+  'bel.1',
+  'tur.1',
+  'arg.1',
+  'mex.1',
+  'col.1',
+  'uru.1',
+  'usa.1',
+  'ksa.1',
+  'jpn.1',
+  'aus.1',
   'uefa.champions',
+  'uefa.europa',
+  'uefa.europa.conf',
   'conmebol.libertadores',
+  'conmebol.sudamericana',
 ];
 
 const TODAY_ALL_LEAGUES = [
@@ -1090,20 +1213,64 @@ const TODAY_ALL_LEAGUES = [
   'bra.camp.mineiro',
   'bra.camp.gaucho',
   'eng.1',
+  'eng.2',
+  'eng.fa',
+  'eng.league_cup',
   'esp.1',
   'esp.2',
+  'esp.copa_del_rey',
   'ita.1',
+  'ita.2',
+  'ita.coppa_italia',
   'ger.1',
+  'ger.2',
+  'ger.dfb_pokal',
   'fra.1',
+  'fra.2',
+  'fra.coupe_de_france',
   'por.1',
+  'por.taca.portugal',
+  'ned.1',
+  'ned.2',
+  'bel.1',
+  'tur.1',
+  'sco.1',
+  'rus.1',
+  'gre.1',
+  'aut.1',
+  'den.1',
+  'nor.1',
+  'swe.1',
   'arg.1',
+  'mex.1',
+  'col.1',
+  'uru.1',
+  'chi.1',
+  'ecu.1',
+  'par.1',
+  'per.1',
   'usa.1',
+  'ksa.1',
+  'jpn.1',
+  'aus.1',
+  'chn.1',
+  'ind.1',
+  'rsa.1',
   'uefa.champions',
   'uefa.europa',
+  'uefa.europa.conf',
   'uefa.nations',
   'conmebol.libertadores',
   'conmebol.sudamericana',
+  'afc.champions',
+  'caf.champions',
+  'concacaf.champions',
+  'concacaf.nations.league',
   'fifa.worldq.conmebol',
+  'fifa.worldq.uefa',
+  'fifa.worldq.concacaf',
+  'fifa.worldq.afc',
+  'fifa.worldq.caf',
   'fifa.friendly',
 ];
 
@@ -1113,6 +1280,273 @@ const BRT_DAY_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   month: '2-digit',
   day: '2-digit',
 });
+
+// Pre-seeded ESPN numeric leagueId -> { slug, name } cache (dynamically enriched at runtime)
+const leagueIdMetaCache = new Map<string, { slug: string; name: string }>([
+  ['630', { slug: 'bra.1', name: 'Brasileirão Série A' }],
+  ['680', { slug: 'uru.1', name: 'Campeonato Uruguaio' }],
+  ['770', { slug: 'usa.1', name: 'MLS' }],
+  ['740', { slug: 'esp.1', name: 'La Liga' }],
+  ['720', { slug: 'ger.1', name: 'Bundesliga' }],
+  ['710', { slug: 'fra.1', name: 'Ligue 1' }],
+  ['730', { slug: 'ita.1', name: 'Serie A Itália' }],
+  ['700', { slug: 'eng.1', name: 'Premier League' }],
+  ['745', { slug: 'arg.1', name: 'Liga Profesional Argentina' }],
+  ['760', { slug: 'mex.1', name: 'Liga MX (México)' }],
+  ['750', { slug: 'jpn.1', name: 'J.League (Japão)' }],
+  ['640', { slug: 'chi.1', name: 'Campeonato Chileno' }],
+  ['650', { slug: 'col.1', name: 'Primera A (Colômbia)' }],
+  ['660', { slug: 'ecu.1', name: 'LigaPro (Equador)' }],
+  ['3934', { slug: 'par.1', name: 'Primera División (Paraguai)' }],
+  ['21231', { slug: 'ksa.1', name: 'Saudi Pro League' }],
+  ['3906', { slug: 'aus.1', name: 'A-League (Austrália)' }],
+  ['3901', { slug: 'bel.1', name: 'Pro League (Bélgica)' }],
+  ['3939', { slug: 'rus.1', name: 'Premier League (Rússia)' }],
+  ['3913', { slug: 'den.1', name: 'Superliga (Dinamarca)' }],
+  ['3960', { slug: 'nor.1', name: 'Eliteserien (Noruega)' }],
+  ['8316', { slug: 'ind.1', name: 'Indian Super League' }],
+  ['3921', { slug: 'esp.2', name: 'La Liga 2' }],
+  ['3927', { slug: 'ger.2', name: '2. Bundesliga' }],
+  ['3931', { slug: 'ita.2', name: 'Serie B Itália' }],
+  ['3926', { slug: 'fra.2', name: 'Ligue 2' }],
+  ['3933', { slug: 'ned.2', name: 'Eerste Divisie (Holanda)' }],
+  ['3940', { slug: 'sco.2', name: 'Championship (Escócia)' }],
+  ['20922', { slug: 'por.taca.portugal', name: 'Taça de Portugal' }],
+  ['19483', { slug: 'uefa.wchampions', name: 'UEFA Champions League Feminina' }],
+]);
+
+function isExcludedAmateurLeague(slug: string): boolean {
+  const s = slug.toLowerCase();
+  return s.startsWith('usa.ncaa.') || s === 'nonfifa';
+}
+
+function getLeaguePriorityTier(slug: string): 1 | 2 | 3 {
+  const s = slug.toLowerCase();
+  if (
+    /^(bra\.1|bra\.copa_do_brazil|eng\.1|esp\.1|ita\.1|ger\.1|fra\.1|por\.1|ned\.1|bel\.1|tur\.1|arg\.1|mex\.1|usa\.1)$/.test(
+      s
+    ) ||
+    /^(uefa\.(champions|europa|europa\.conf|nations|euro)|conmebol\.(libertadores|sudamericana|recopa|america)|afc\.champions|caf\.champions|concacaf\.(champions|nations)|fifa\.(world|cwc|worldq))/.test(
+      s
+    )
+  ) {
+    return 1;
+  }
+  if (
+    /^(bra\.2|bra\.3|bra\.copa_do_nordeste|bra\.camp\.|col\.1|uru\.1|chi\.1|ecu\.1|par\.1|per\.1|bol\.1|ven\.1|crc\.1|hon\.1|gua\.1|slv\.1|jpn\.1|ksa\.1|chn\.1|aus\.1|ind\.1|rsa\.1|sco\.1|rus\.1|gre\.1|aut\.1|den\.1|nor\.1|swe\.1|eng\.2|eng\.fa|eng\.league_cup|esp\.2|esp\.copa_del_rey|ger\.2|ger\.dfb_pokal|ita\.2|ita\.coppa_italia|fra\.2|fra\.coupe_de_france|por\.taca\.portugal|ned\.2|ned\.cup|arg\.copa|col\.copa|chi\.copa_chi|ksa\.kings\.cup|caf\.nations|caf\.confed|afc\.asian\.cup|afc\.cup)/.test(
+      s
+    )
+  ) {
+    return 2;
+  }
+  return 3;
+}
+
+interface DiscoveredUpcomingMatch {
+  eventId: string;
+  leagueSlug: string;
+  compLabel: string;
+  tier: 1 | 2 | 3;
+  timestamp: number;
+  isToday: boolean;
+  dateLabel: string;
+  homeId: string;
+  homeName: string;
+  homeAbbr: string;
+  homeColor: string;
+  homeLogoUrl?: string;
+  awayId: string;
+  awayName: string;
+  awayAbbr: string;
+  awayColor: string;
+  awayLogoUrl?: string;
+}
+
+function parseLeagueIdFromUid(uid?: string): string | null {
+  if (!uid) return null;
+  const m = String(uid).match(/l:(\d+)/);
+  return m ? m[1] : null;
+}
+
+async function resolveLeagueMetaForGlobalEvents(events: any[]): Promise<void> {
+  const sampleEventByUnseenLid = new Map<string, string>();
+  for (const ev of events) {
+    const lid = parseLeagueIdFromUid(ev?.uid);
+    const evId = String(ev?.id || '');
+    if (!lid || !evId || leagueIdMetaCache.has(lid) || sampleEventByUnseenLid.has(lid)) {
+      continue;
+    }
+    sampleEventByUnseenLid.set(lid, evId);
+  }
+
+  if (sampleEventByUnseenLid.size === 0) return;
+
+  const entries = Array.from(sampleEventByUnseenLid.entries()).slice(0, 32);
+  await Promise.all(
+    entries.map(async ([lid, evId]) => {
+      const sum = await fetchJson<any>(
+        `https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary?event=${encodeURIComponent(
+          evId
+        )}`,
+        5000
+      );
+      const lg = sum?.header?.league;
+      const slug = typeof lg?.slug === 'string' ? lg.slug.trim() : '';
+      const rawName = typeof lg?.name === 'string' ? lg.name.trim() : '';
+      if (slug) {
+        leagueIdMetaCache.set(lid, {
+          slug,
+          name: LEAGUE_LABELS[slug] || rawName || slug.toUpperCase(),
+        });
+      }
+    })
+  );
+}
+
+async function discoverGlobalUpcomingMatches(
+  ymds: string[],
+  todayBrtIso: string,
+  targetBrtIso?: string
+): Promise<DiscoveredUpcomingMatch[]> {
+  const uniqueYmds = Array.from(new Set(ymds.filter(Boolean)));
+  const boards = await Promise.all(
+    uniqueYmds.map((ymd) =>
+      fetchJson<any>(
+        `https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates=${ymd}`,
+        7000
+      )
+    )
+  );
+
+  const rawEvents: any[] = [];
+  const seenRawIds = new Set<string>();
+  for (const board of boards) {
+    for (const ev of board?.events || []) {
+      const evId = String(ev?.id || '');
+      const state = ev?.competitions?.[0]?.status?.type?.state;
+      const completed = Boolean(ev?.competitions?.[0]?.status?.type?.completed);
+      if (!evId || seenRawIds.has(evId) || completed || state !== 'pre') continue;
+      seenRawIds.add(evId);
+      rawEvents.push(ev);
+    }
+  }
+
+  await resolveLeagueMetaForGlobalEvents(rawEvents);
+
+  const now = Date.now();
+  const out: DiscoveredUpcomingMatch[] = [];
+
+  for (const ev of rawEvents) {
+    const eventId = String(ev?.id || '');
+    const comp = ev?.competitions?.[0];
+    const statusType = comp?.status?.type;
+    const evDate = ev?.date ? new Date(ev.date) : null;
+    const timestamp = evDate && !Number.isNaN(evDate.getTime()) ? evDate.getTime() : 0;
+    if (!timestamp || timestamp < now - 20 * 60 * 1000) continue;
+
+    const evBrtDay = evDate ? BRT_DAY_FORMATTER.format(evDate) : '';
+    if (targetBrtIso && evBrtDay !== targetBrtIso) continue;
+
+    const lid = parseLeagueIdFromUid(ev?.uid);
+    const meta = lid ? leagueIdMetaCache.get(lid) : undefined;
+    const slug = meta?.slug || '';
+    if (!slug || isExcludedAmateurLeague(slug)) continue;
+
+    const competitors = comp?.competitors || [];
+    const home = competitors.find((c: any) => c.homeAway === 'home');
+    const away = competitors.find((c: any) => c.homeAway === 'away');
+    if (!home?.team?.id || !away?.team?.id) continue;
+
+    const homeName = home.team.displayName || home.team.shortDisplayName || '';
+    const awayName = away.team.displayName || away.team.shortDisplayName || '';
+    if (
+      !homeName ||
+      !awayName ||
+      /\btbd\b/i.test(homeName) ||
+      /\btbd\b/i.test(awayName)
+    ) {
+      continue;
+    }
+
+    const compLabel = LEAGUE_LABELS[slug] || meta?.name || slug.toUpperCase();
+
+    out.push({
+      eventId,
+      leagueSlug: slug,
+      compLabel,
+      tier: getLeaguePriorityTier(slug),
+      timestamp,
+      isToday: evBrtDay === todayBrtIso,
+      dateLabel: formatUpcomingKickoffLabel(evDate, statusType?.shortDetail),
+      homeId: String(home.team.id),
+      homeName,
+      homeAbbr: (home.team.abbreviation || homeName || 'MAN').slice(0, 3).toUpperCase(),
+      homeColor: sanitizeHex(home.team.color, '#0F766E'),
+      homeLogoUrl: extractTeamLogoUrl(home.team),
+      awayId: String(away.team.id),
+      awayName,
+      awayAbbr: (away.team.abbreviation || awayName || 'VIS').slice(0, 3).toUpperCase(),
+      awayColor: sanitizeHex(away.team.color, '#1D4ED8'),
+      awayLogoUrl: extractTeamLogoUrl(away.team),
+    });
+  }
+
+  return out;
+}
+
+function isTournamentOrCupSlug(slug: string): boolean {
+  const s = slug.toLowerCase();
+  return /(copa|cup|taca|pokal|champions|europa|conf|libertadores|sudamericana|nations|friendly|world|america|recopa|olympics)/.test(
+    s
+  );
+}
+
+async function fetchTeamScheduleWithAllFallback(
+  slug: string,
+  teamId: string
+): Promise<any> {
+  if (!isTournamentOrCupSlug(slug)) {
+    const primary = await fetchJson<any>(
+      `https://site.api.espn.com/apis/site/v2/sports/soccer/${encodeURIComponent(
+        slug
+      )}/teams/${encodeURIComponent(teamId)}/schedule`,
+      6000
+    );
+    const completedCount = (primary?.events || []).filter((e: any) =>
+      Boolean(e?.competitions?.[0]?.status?.type?.completed)
+    ).length;
+    if (completedCount >= 3) {
+      return primary;
+    }
+    const allSched = await fetchJson<any>(
+      `https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams/${encodeURIComponent(
+        teamId
+      )}/schedule`,
+      6000
+    );
+    const allCompleted = (allSched?.events || []).filter((e: any) =>
+      Boolean(e?.competitions?.[0]?.status?.type?.completed)
+    ).length;
+    return allCompleted > completedCount ? allSched : primary;
+  }
+
+  // For cups & continental tournaments, /all/teams/{id}/schedule captures full recent club form
+  const allSched = await fetchJson<any>(
+    `https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams/${encodeURIComponent(
+      teamId
+    )}/schedule`,
+    6000
+  );
+  if ((allSched?.events || []).length > 0) {
+    return allSched;
+  }
+  return fetchJson<any>(
+    `https://site.api.espn.com/apis/site/v2/sports/soccer/${encodeURIComponent(
+      slug
+    )}/teams/${encodeURIComponent(teamId)}/schedule`,
+    6000
+  );
+}
 
 function extractCalendarDates(scoreboardJson: any, todayIso: string, maxDates = 3): string[] {
   const calendar: any[] = scoreboardJson?.leagues?.[0]?.calendar || [];
@@ -1161,7 +1595,7 @@ export async function buildMultipleTipViaEspn(
   const isWorldMix = leagueKey === 'world' || isGlobalDayMode;
 
   const targetLeagues = isGlobalDayMode
-    ? TODAY_ALL_LEAGUES
+    ? TODAY_ALL_LEAGUES.slice(0, 18)
     : leagueKey === 'world'
       ? WORLD_MIX_LEAGUES
       : [leagueKey];
@@ -1172,7 +1606,7 @@ export async function buildMultipleTipViaEspn(
       : leagueKey === 'tomorrow'
         ? 'Jogos de Amanhã (Mundial)'
         : leagueKey === 'world'
-          ? 'Principais do Mundo (Misto)'
+          ? 'Todo o Mundo (Misto)'
           : LEAGUE_LABELS[leagueKey] || leagueKey.toUpperCase();
 
   const compLabel = !isGlobalDayMode
@@ -1184,44 +1618,24 @@ export async function buildMultipleTipViaEspn(
     : baseCompLabel;
 
   const nowDate = new Date();
+  const todayBrtIso = BRT_DAY_FORMATTER.format(nowDate);
   const offsetDays = effectiveDayFilter === 'tomorrow' ? 1 : 0;
   const targetBrtRefDate = new Date(nowDate.getTime() + offsetDays * 24 * 60 * 60 * 1000);
   const targetBrtIso = BRT_DAY_FORMATTER.format(targetBrtRefDate);
   const lookaheadBrtIso = BRT_DAY_FORMATTER.format(
     new Date(targetBrtRefDate.getTime() + 24 * 60 * 60 * 1000)
   );
+  const dayAfterLookaheadIso = BRT_DAY_FORMATTER.format(
+    new Date(targetBrtRefDate.getTime() + 48 * 60 * 60 * 1000)
+  );
   const targetBrtYmd = targetBrtIso.replace(/-/g, '');
   const lookaheadBrtYmd = lookaheadBrtIso.replace(/-/g, '');
+  const dayAfterLookaheadYmd = dayAfterLookaheadIso.replace(/-/g, '');
   const todayIso = nowDate.toISOString().slice(0, 10);
   const now = Date.now();
 
-  const initialScoreboards = await Promise.all(
-    targetLeagues.map(async (slug) => {
-      const url = isDateRestricted
-        ? `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${targetBrtYmd}`
-        : `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard`;
-      const json = await fetchJson<any>(url, 7000);
-      return { slug, json };
-    })
-  );
-
-  interface CandidateMatch {
-    eventId: string;
-    leagueSlug: string;
-    compLabel: string;
-    timestamp: number;
-    dateLabel: string;
-    homeId: string;
-    homeName: string;
-    homeAbbr: string;
-    homeColor: string;
-    homeLogoUrl?: string;
-    awayId: string;
-    awayName: string;
-    awayAbbr: string;
-    awayColor: string;
-    awayLogoUrl?: string;
-  }
+  type CandidateMatch = DiscoveredUpcomingMatch;
+  const upcomingMap = new Map<string, CandidateMatch>();
 
   const extractUpcomingFromBatch = (batch: any, slug: string): CandidateMatch[] => {
     const out: CandidateMatch[] = [];
@@ -1242,10 +1656,8 @@ export async function buildMultipleTipViaEspn(
       const timestamp = evDate && !Number.isNaN(evDate.getTime()) ? evDate.getTime() : 0;
       if (!timestamp || timestamp < now - 20 * 60 * 1000) continue;
 
-      if (isDateRestricted && evDate) {
-        const evBrtDay = BRT_DAY_FORMATTER.format(evDate);
-        if (evBrtDay !== targetBrtIso) continue;
-      }
+      const evBrtDay = evDate ? BRT_DAY_FORMATTER.format(evDate) : '';
+      if (isDateRestricted && evDate && evBrtDay !== targetBrtIso) continue;
 
       const competitors = comp?.competitors || [];
       const home = competitors.find((c: any) => c.homeAway === 'home');
@@ -1267,7 +1679,9 @@ export async function buildMultipleTipViaEspn(
         eventId,
         leagueSlug: slug,
         compLabel: leagueTitle,
+        tier: getLeaguePriorityTier(slug),
         timestamp,
+        isToday: evBrtDay === todayBrtIso,
         dateLabel: formatUpcomingKickoffLabel(evDate, statusType?.shortDetail),
         homeId: String(home.team.id),
         homeName,
@@ -1288,72 +1702,132 @@ export async function buildMultipleTipViaEspn(
     return out;
   };
 
-  const upcomingMap = new Map<string, CandidateMatch>();
-  const extraDateFetches: Promise<{ slug: string; json: any }>[] = [];
+  if (isWorldMix) {
+    // Worldwide discovery: scan ESPN global /all/scoreboard across target dates + supplemental league boards
+    const globalYmds = isDateRestricted
+      ? [targetBrtYmd, lookaheadBrtYmd]
+      : [targetBrtYmd, lookaheadBrtYmd, dayAfterLookaheadYmd];
 
-  for (const { slug, json } of initialScoreboards) {
-    if (!json) continue;
-    const found = extractUpcomingFromBatch(json, slug);
-    for (const item of found) {
-      upcomingMap.set(`${slug}:${item.eventId}`, item);
+    const [globalDiscovered, supplementalBoards] = await Promise.all([
+      discoverGlobalUpcomingMatches(
+        globalYmds,
+        todayBrtIso,
+        isDateRestricted ? targetBrtIso : undefined
+      ),
+      Promise.all(
+        targetLeagues.map(async (slug) => {
+          const url = isDateRestricted
+            ? `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${targetBrtYmd}`
+            : `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard`;
+          const json = await fetchJson<any>(url, 6000);
+          return { slug, json };
+        })
+      ),
+    ]);
+
+    for (const m of globalDiscovered) {
+      upcomingMap.set(`${m.leagueSlug}:${m.eventId}`, m);
     }
 
-    if (isDateRestricted) {
-      // Late evening BRT matches (after 21:00 BRT) fall on next UTC date in ESPN
-      if (
-        !isGlobalDayMode ||
-        slug.startsWith('bra.') ||
-        slug.startsWith('conmebol.') ||
-        slug === 'arg.1' ||
-        slug === 'usa.1'
-      ) {
+    const extraCalendarFetches: Promise<{ slug: string; json: any }>[] = [];
+    for (const { slug, json } of supplementalBoards) {
+      if (!json) continue;
+      for (const m of extractUpcomingFromBatch(json, slug)) {
+        const key = `${slug}:${m.eventId}`;
+        if (!upcomingMap.has(key)) upcomingMap.set(key, m);
+      }
+      if (!isDateRestricted && upcomingMap.size < targetCount + 6) {
+        const nextDates = extractCalendarDates(json, todayIso, 2);
+        for (const dateStr of nextDates) {
+          const ymd = dateStr.slice(0, 10).replace(/-/g, '');
+          extraCalendarFetches.push(
+            fetchJson<any>(
+              `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${ymd}`,
+              5500
+            ).then((batch) => ({ slug, json: batch }))
+          );
+        }
+      }
+    }
+
+    if (extraCalendarFetches.length > 0) {
+      const extraBatches = await Promise.all(extraCalendarFetches);
+      for (const { slug, json } of extraBatches) {
+        if (!json) continue;
+        for (const m of extractUpcomingFromBatch(json, slug)) {
+          const key = `${slug}:${m.eventId}`;
+          if (!upcomingMap.has(key)) upcomingMap.set(key, m);
+        }
+      }
+    }
+  } else {
+    const initialScoreboards = await Promise.all(
+      targetLeagues.map(async (slug) => {
+        const url = isDateRestricted
+          ? `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${targetBrtYmd}`
+          : `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard`;
+        const json = await fetchJson<any>(url, 7000);
+        return { slug, json };
+      })
+    );
+
+    const extraDateFetches: Promise<{ slug: string; json: any }>[] = [];
+
+    for (const { slug, json } of initialScoreboards) {
+      if (!json) continue;
+      const found = extractUpcomingFromBatch(json, slug);
+      for (const item of found) {
+        upcomingMap.set(`${slug}:${item.eventId}`, item);
+      }
+
+      if (isDateRestricted) {
+        // Late evening BRT matches (after 21:00 BRT) fall on next UTC date in ESPN
         extraDateFetches.push(
           fetchJson<any>(
             `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${lookaheadBrtYmd}`,
             5500
           ).then((batch) => ({ slug, json: batch }))
         );
+      } else {
+        const minDesired = Math.max(5, targetCount + 2);
+        if (found.length < minDesired) {
+          const nextDates = extractCalendarDates(json, todayIso, 3);
+          for (const dateStr of nextDates) {
+            const ymd = dateStr.slice(0, 10).replace(/-/g, '');
+            extraDateFetches.push(
+              fetchJson<any>(
+                `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${ymd}`,
+                6000
+              ).then((batch) => ({ slug, json: batch }))
+            );
+          }
+        }
       }
-    } else {
-      const minDesired = isWorldMix
-        ? Math.max(2, Math.ceil(targetCount / 3))
-        : Math.max(5, targetCount + 2);
-      if (found.length < minDesired) {
-        const nextDates = extractCalendarDates(json, todayIso, 3);
-        for (const dateStr of nextDates) {
-          const ymd = dateStr.slice(0, 10).replace(/-/g, '');
-          extraDateFetches.push(
-            fetchJson<any>(
-              `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${ymd}`,
-              6000
-            ).then((batch) => ({ slug, json: batch }))
-          );
+    }
+
+    if (extraDateFetches.length > 0) {
+      const extraBatches = await Promise.all(extraDateFetches);
+      for (const { slug, json } of extraBatches) {
+        if (!json) continue;
+        for (const item of extractUpcomingFromBatch(json, slug)) {
+          const key = `${slug}:${item.eventId}`;
+          if (!upcomingMap.has(key)) {
+            upcomingMap.set(key, item);
+          }
         }
       }
     }
   }
 
-  if (extraDateFetches.length > 0) {
-    const extraBatches = await Promise.all(extraDateFetches);
-    for (const { slug, json } of extraBatches) {
-      if (!json) continue;
-      for (const item of extractUpcomingFromBatch(json, slug)) {
-        const key = `${slug}:${item.eventId}`;
-        if (!upcomingMap.has(key)) {
-          upcomingMap.set(key, item);
-        }
-      }
-    }
-  }
-
-  const allUpcoming = Array.from(upcomingMap.values()).sort(
-    (a, b) => a.timestamp - b.timestamp
-  );
+  const allUpcoming = Array.from(upcomingMap.values()).sort((a, b) => {
+    if (a.tier !== b.tier) return a.tier - b.tier;
+    return a.timestamp - b.timestamp;
+  });
 
   let candidateMatches: CandidateMatch[];
   if (isWorldMix) {
-    // Pick up to N soonest matches per league first for global diversity
-    const maxPerLeague = targetCount >= 10 ? 4 : 2;
+    // Pick up to N soonest matches per league across Tier 1 & Tier 2 first, then Tier 3 if needed for global diversity
+    const maxPerLeague = targetCount >= 10 ? 3 : 2;
     const perLeagueCount = new Map<string, number>();
     const diverse: CandidateMatch[] = [];
     const overflow: CandidateMatch[] = [];
@@ -1366,7 +1840,7 @@ export async function buildMultipleTipViaEspn(
         overflow.push(m);
       }
     }
-    candidateMatches = [...diverse, ...overflow].slice(0, Math.max(8, targetCount + 4));
+    candidateMatches = [...diverse, ...overflow].slice(0, Math.max(14, targetCount + 6));
   } else {
     candidateMatches = allUpcoming.slice(0, Math.max(7, targetCount + 3));
   }
@@ -1392,17 +1866,14 @@ export async function buildMultipleTipViaEspn(
       involvedLeagues.map(async (slug) => {
         const json = await fetchJson<any>(
           `https://site.api.espn.com/apis/v2/sports/soccer/${slug}/standings`,
-          7000
+          6500
         );
         return [slug, json] as const;
       })
     ),
     Promise.all(
       teamLeaguePairs.map(async ([key, pair]) => {
-        const json = await fetchJson<any>(
-          `https://site.api.espn.com/apis/site/v2/sports/soccer/${pair.slug}/teams/${pair.teamId}/schedule`,
-          6500
-        );
+        const json = await fetchTeamScheduleWithAllFallback(pair.slug, pair.teamId);
         return [key, json] as const;
       })
     ),
@@ -1866,8 +2337,15 @@ async function fetchQuickCardsAndCorners(
       let req = summaryCache.get(cacheKey);
       if (!req) {
         req = fetchJson<any>(
-          `https://site.api.espn.com/apis/site/v2/sports/soccer/${leagueSlug}/summary?event=${id}`,
+          `https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary?event=${id}`,
           4500
+        ).then((res) =>
+          res?.boxscore?.teams
+            ? res
+            : fetchJson<any>(
+                `https://site.api.espn.com/apis/site/v2/sports/soccer/${leagueSlug}/summary?event=${id}`,
+                4500
+              )
         );
         summaryCache.set(cacheKey, req);
       }
@@ -1921,29 +2399,16 @@ export async function buildSuperCombinedTipViaEspn(): Promise<SuperCombinedTip |
   const tomorrowBrtIso = BRT_DAY_FORMATTER.format(
     new Date(nowDate.getTime() + 24 * 60 * 60 * 1000)
   );
+  const dayAfterBrtIso = BRT_DAY_FORMATTER.format(
+    new Date(nowDate.getTime() + 48 * 60 * 60 * 1000)
+  );
   const todayBrtYmd = todayBrtIso.replace(/-/g, '');
   const tomorrowBrtYmd = tomorrowBrtIso.replace(/-/g, '');
+  const dayAfterBrtYmd = dayAfterBrtIso.replace(/-/g, '');
   const todayIso = nowDate.toISOString().slice(0, 10);
   const now = Date.now();
 
-  interface SuperCandidateMatch {
-    eventId: string;
-    leagueSlug: string;
-    compLabel: string;
-    timestamp: number;
-    isToday: boolean;
-    dateLabel: string;
-    homeId: string;
-    homeName: string;
-    homeAbbr: string;
-    homeColor: string;
-    homeLogoUrl?: string;
-    awayId: string;
-    awayName: string;
-    awayAbbr: string;
-    awayColor: string;
-    awayLogoUrl?: string;
-  }
+  type SuperCandidateMatch = DiscoveredUpcomingMatch;
 
   const extractUpcoming = (batch: any, slug: string): SuperCandidateMatch[] => {
     const out: SuperCandidateMatch[] = [];
@@ -1984,6 +2449,7 @@ export async function buildSuperCombinedTipViaEspn(): Promise<SuperCombinedTip |
         eventId,
         leagueSlug: slug,
         compLabel: leagueTitle,
+        tier: getLeaguePriorityTier(slug),
         timestamp,
         isToday: evBrtDay === todayBrtIso,
         dateLabel: formatUpcomingKickoffLabel(evDate, statusType?.shortDetail),
@@ -2002,71 +2468,71 @@ export async function buildSuperCombinedTipViaEspn(): Promise<SuperCombinedTip |
     return out;
   };
 
-  // Step 1: Scan today's schedule across all leagues first
-  const todayBatches = await Promise.all(
-    TODAY_ALL_LEAGUES.map(async (slug) => {
-      const json = await fetchJson<any>(
-        `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${todayBrtYmd}`,
-        5500
-      );
-      return { slug, json };
-    })
-  );
+  // Step 1: Discover ALL worldwide matches today via ESPN global /all/scoreboard + key regional leagues
+  const priorityRegionalLeagues = [
+    'bra.1',
+    'bra.2',
+    'bra.copa_do_brazil',
+    'conmebol.libertadores',
+    'conmebol.sudamericana',
+    'eng.1',
+    'esp.1',
+    'ita.1',
+    'ger.1',
+    'fra.1',
+    'uefa.champions',
+  ];
+
+  const [globalTodayMatches, priorityBatches] = await Promise.all([
+    discoverGlobalUpcomingMatches([todayBrtYmd, tomorrowBrtYmd], todayBrtIso, todayBrtIso),
+    Promise.all(
+      priorityRegionalLeagues.map(async (slug) => {
+        const json = await fetchJson<any>(
+          `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${todayBrtYmd}`,
+          5500
+        );
+        return { slug, json };
+      })
+    ),
+  ]);
 
   const matchMap = new Map<string, SuperCandidateMatch>();
-  const lateAmericasFetches: Promise<{ slug: string; json: any }>[] = [];
-
-  for (const { slug, json } of todayBatches) {
-    if (json) {
-      for (const m of extractUpcoming(json, slug)) {
-        if (m.isToday) {
-          matchMap.set(`${slug}:${m.eventId}`, m);
-        }
-      }
-    }
-    if (
-      slug.startsWith('bra.') ||
-      slug.startsWith('conmebol.') ||
-      slug === 'arg.1' ||
-      slug === 'usa.1'
-    ) {
-      lateAmericasFetches.push(
-        fetchJson<any>(
-          `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${tomorrowBrtYmd}`,
-          5000
-        ).then((batch) => ({ slug, json: batch }))
-      );
+  for (const m of globalTodayMatches) {
+    if (m.isToday) {
+      matchMap.set(`${m.leagueSlug}:${m.eventId}`, m);
     }
   }
-
-  if (lateAmericasFetches.length > 0) {
-    const lateBatches = await Promise.all(lateAmericasFetches);
-    for (const { slug, json } of lateBatches) {
-      if (!json) continue;
-      for (const m of extractUpcoming(json, slug)) {
-        if (m.isToday) {
-          matchMap.set(`${slug}:${m.eventId}`, m);
-        }
+  for (const { slug, json } of priorityBatches) {
+    if (!json) continue;
+    for (const m of extractUpcoming(json, slug)) {
+      if (m.isToday) {
+        const key = `${slug}:${m.eventId}`;
+        if (!matchMap.has(key)) matchMap.set(key, m);
       }
     }
   }
 
   const todayCount = matchMap.size;
 
-  // Step 2: If today has fewer than 4 upcoming games (e.g., late night BRT), seamlessly include next upcoming major league games
-  if (matchMap.size < 4) {
-    const fallbackLeagues = Array.from(
-      new Set(['bra.1', 'bra.2', 'bra.copa_do_brazil', ...WORLD_MIX_LEAGUES])
-    );
-    const defaultBoards = await Promise.all(
-      fallbackLeagues.map(async (slug) => {
-        const json = await fetchJson<any>(
-          `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard`,
-          5500
-        );
-        return { slug, json };
-      })
-    );
+  // Step 2: If today has fewer than 6 upcoming games (e.g., late night BRT), seamlessly include tomorrow & next upcoming worldwide games
+  if (matchMap.size < 6) {
+    const [globalUpcomingMatches, defaultBoards] = await Promise.all([
+      discoverGlobalUpcomingMatches([tomorrowBrtYmd, dayAfterBrtYmd], todayBrtIso),
+      Promise.all(
+        WORLD_MIX_LEAGUES.slice(0, 12).map(async (slug) => {
+          const json = await fetchJson<any>(
+            `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard`,
+            5500
+          );
+          return { slug, json };
+        })
+      ),
+    ]);
+
+    for (const m of globalUpcomingMatches) {
+      const key = `${m.leagueSlug}:${m.eventId}`;
+      if (!matchMap.has(key)) matchMap.set(key, m);
+    }
 
     const extraDates: Promise<{ slug: string; json: any }>[] = [];
     for (const { slug, json } of defaultBoards) {
@@ -2076,14 +2542,14 @@ export async function buildSuperCombinedTipViaEspn(): Promise<SuperCombinedTip |
         const key = `${slug}:${m.eventId}`;
         if (!matchMap.has(key)) matchMap.set(key, m);
       }
-      if (found.length < 2) {
+      if (found.length < 2 && matchMap.size < 10) {
         const nextDates = extractCalendarDates(json, todayIso, 2);
         for (const dateStr of nextDates) {
           const ymd = dateStr.slice(0, 10).replace(/-/g, '');
           extraDates.push(
             fetchJson<any>(
               `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${ymd}`,
-              5500
+              5000
             ).then((batch) => ({ slug, json: batch }))
           );
         }
@@ -2104,6 +2570,7 @@ export async function buildSuperCombinedTipViaEspn(): Promise<SuperCombinedTip |
 
   const allUpcoming = Array.from(matchMap.values()).sort((a, b) => {
     if (a.isToday !== b.isToday) return a.isToday ? -1 : 1;
+    if (a.tier !== b.tier) return a.tier - b.tier;
     return a.timestamp - b.timestamp;
   });
 
@@ -2111,7 +2578,7 @@ export async function buildSuperCombinedTipViaEspn(): Promise<SuperCombinedTip |
     return null;
   }
 
-  // Pick up to 8 diverse upcoming matches (preferring 2 per league max first)
+  // Pick up to 12 diverse upcoming matches worldwide (preferring max 2 per league for global breadth)
   const perLeague = new Map<string, number>();
   const diverse: SuperCandidateMatch[] = [];
   const overflow: SuperCandidateMatch[] = [];
@@ -2124,7 +2591,7 @@ export async function buildSuperCombinedTipViaEspn(): Promise<SuperCombinedTip |
       overflow.push(m);
     }
   }
-  const candidateMatches = [...diverse, ...overflow].slice(0, 8);
+  const candidateMatches = [...diverse, ...overflow].slice(0, 12);
 
   const involvedLeagues = Array.from(new Set(candidateMatches.map((m) => m.leagueSlug)));
   const teamPairs = Array.from(
@@ -2148,10 +2615,7 @@ export async function buildSuperCombinedTipViaEspn(): Promise<SuperCombinedTip |
     ),
     Promise.all(
       teamPairs.map(async ([key, pair]) => {
-        const json = await fetchJson<any>(
-          `https://site.api.espn.com/apis/site/v2/sports/soccer/${pair.slug}/teams/${pair.teamId}/schedule`,
-          6000
-        );
+        const json = await fetchTeamScheduleWithAllFallback(pair.slug, pair.teamId);
         return [key, json] as const;
       })
     ),
@@ -2374,9 +2838,9 @@ export async function buildSuperCombinedTipViaEspn(): Promise<SuperCombinedTip |
     });
   }
 
-  // Enrich top 6 richest matches with REAL ESPN boxscore cards & corners averages
+  // Enrich top 8 richest matches with REAL ESPN boxscore cards & corners averages
   preContexts.sort((a, b) => b.dataRichness - a.dataRichness || a.match.timestamp - b.match.timestamp);
-  const topForBoxscores = preContexts.slice(0, 6);
+  const topForBoxscores = preContexts.slice(0, 8);
   const summaryCache = new Map<string, Promise<any>>();
 
   const boxscoreMap = new Map<
@@ -3028,10 +3492,10 @@ export async function buildSuperCombinedTipViaEspn(): Promise<SuperCombinedTip |
   const isTodaySlate = todayCount >= 3;
   const scopeLabel =
     todayCount >= 4
-      ? 'Jogos de hoje · Grade mundial'
+      ? 'Jogos de hoje · Campeonatos do mundo'
       : todayCount > 0
-        ? 'Jogos de hoje e próximos confrontos'
-        : 'Próximos jogos · Grade mundial';
+        ? 'Jogos de hoje e próximos confrontos · Mundial'
+        : 'Próximos jogos · Campeonatos do mundo';
 
   return {
     updatedAt: new Date().toISOString(),
