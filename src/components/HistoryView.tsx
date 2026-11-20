@@ -1,17 +1,28 @@
 import React, { useEffect, useState } from 'react';
 import {
   BarChart3,
+  Check,
   CheckCircle2,
   Clock,
+  Copy,
+  Download,
   Edit3,
   Flame,
   ImagePlus,
   Loader2,
   RefreshCw,
+  Share2,
   Trash2,
+  X,
   XCircle,
 } from 'lucide-react';
-import { formatBrlCurrency } from '../lib/shareMultipleImage.ts';
+import {
+  buildAnalysisResultWhatsappText,
+  buildMultipleResultWhatsappText,
+  formatBrlCurrency,
+  generateAnalysisResultPng,
+  generateMultipleResultPng,
+} from '../lib/shareMultipleImage.ts';
 import { BetSlipUploadModal } from './BetSlipUploadModal.tsx';
 import { CompetitionFlag } from './CompetitionFlag.tsx';
 import { TeamCrest } from './TeamCrest.tsx';
@@ -211,6 +222,17 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   const [awayInput, setAwayInput] = useState<string>('0');
   const [filterLeague, setFilterLeague] = useState<string>('all');
 
+  const [generatingShareId, setGeneratingShareId] = useState<string | null>(null);
+  const [activeShare, setActiveShare] = useState<{
+    itemId: string;
+    dataUrl: string;
+    fileName: string;
+    whatsappHref: string;
+    whatsappText: string;
+    feedback: string;
+  } | null>(null);
+  const [copiedShareId, setCopiedShareId] = useState<string | null>(null);
+
   useEffect(() => {
     setSection(initialSection);
   }, [initialSection]);
@@ -303,6 +325,197 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     const a = Math.max(0, Math.min(20, parseInt(awayInput, 10) || 0));
     onRecordScore(id, h, a);
     setEditingId(null);
+  };
+
+  const triggerPngDownload = (dataUrl: string, fileName: string) => {
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const executeResultShare = async (
+    itemId: string,
+    shareTitle: string,
+    summaryText: string,
+    generateFn: () => Promise<{ blob: Blob; dataUrl: string; fileName: string }>
+  ) => {
+    setGeneratingShareId(itemId);
+    try {
+      const { blob, dataUrl, fileName } = await generateFn();
+      const whatsappHref = `https://wa.me/?text=${encodeURIComponent(summaryText)}`;
+      const imageFile = new File([blob], fileName, { type: 'image/png' });
+
+      if (
+        typeof navigator !== 'undefined' &&
+        typeof navigator.share === 'function' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [imageFile] })
+      ) {
+        try {
+          await navigator.share({
+            title: shareTitle,
+            text: summaryText,
+            files: [imageFile],
+          });
+          setActiveShare({
+            itemId,
+            dataUrl,
+            fileName,
+            whatsappHref,
+            whatsappText: summaryText,
+            feedback: 'Imagem de resultado compartilhada com sucesso.',
+          });
+          return;
+        } catch (shareErr: any) {
+          if (shareErr?.name === 'AbortError') {
+            setActiveShare({
+              itemId,
+              dataUrl,
+              fileName,
+              whatsappHref,
+              whatsappText: summaryText,
+              feedback: 'Prévia pronta para baixar ou enviar no WhatsApp.',
+            });
+            return;
+          }
+        }
+      }
+
+      triggerPngDownload(dataUrl, fileName);
+      setActiveShare({
+        itemId,
+        dataUrl,
+        fileName,
+        whatsappHref,
+        whatsappText: summaryText,
+        feedback:
+          'Imagem PNG baixada! Envie a imagem no WhatsApp ou copie o resumo abaixo.',
+      });
+    } catch {
+      setActiveShare({
+        itemId,
+        dataUrl: '',
+        fileName: '',
+        whatsappHref: `https://wa.me/?text=${encodeURIComponent(summaryText)}`,
+        whatsappText: summaryText,
+        feedback:
+          'Não foi possível gerar a imagem agora, mas você pode enviar o resumo no WhatsApp.',
+      });
+    } finally {
+      setGeneratingShareId(null);
+    }
+  };
+
+  const handleShareMultipleResult = (item: MultipleHistoryItem) => {
+    const summaryText = buildMultipleResultWhatsappText(item);
+    void executeResultShare(
+      item.id,
+      `Resultado · ${item.competition} · CampoStats`,
+      summaryText,
+      () => generateMultipleResultPng(item)
+    );
+  };
+
+  const handleShareAnalysisResult = (item: PredictionHistoryItem) => {
+    const summaryText = buildAnalysisResultWhatsappText(item);
+    void executeResultShare(
+      item.id,
+      `${item.homeTeam.name} × ${item.awayTeam.name} · CampoStats`,
+      summaryText,
+      () => generateAnalysisResultPng(item)
+    );
+  };
+
+  const handleCopyShareText = async (itemId: string, text: string) => {
+    if (!navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedShareId(itemId);
+      setTimeout(() => {
+        setCopiedShareId((prev) => (prev === itemId ? null : prev));
+      }, 2000);
+    } catch {
+      // Ignore clipboard errors
+    }
+  };
+
+  const renderSharePreview = (itemId: string) => {
+    if (!activeShare || activeShare.itemId !== itemId) return null;
+    const isCopied = copiedShareId === itemId;
+
+    return (
+      <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex flex-col min-[380px]:flex-row items-start min-[380px]:items-center gap-3 min-w-0 w-full">
+          {activeShare.dataUrl && (
+            <img
+              src={activeShare.dataUrl}
+              alt="Prévia da imagem do resultado para compartilhamento"
+              referrerPolicy="no-referrer"
+              className="w-16 h-20 object-cover rounded-lg border border-slate-300 dark:border-slate-700 shrink-0"
+            />
+          )}
+          <div className="min-w-0 space-y-2 flex-1">
+            <p className="text-xs font-medium text-slate-700 dark:text-slate-200">
+              {activeShare.feedback}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <a
+                href={activeShare.whatsappHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-h-[44px] px-3.5 py-2 rounded-lg bg-[#25D366] hover:bg-[#1ebe5d] text-slate-950 text-xs font-bold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+              >
+                <Share2 className="w-3.5 h-3.5 shrink-0" />
+                <span>Abrir WhatsApp</span>
+              </a>
+
+              {activeShare.dataUrl && (
+                <a
+                  href={activeShare.dataUrl}
+                  download={activeShare.fileName}
+                  className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                >
+                  <Download className="w-3.5 h-3.5 shrink-0" />
+                  <span>Baixar PNG</span>
+                </a>
+              )}
+
+              <button
+                type="button"
+                onClick={() =>
+                  handleCopyShareText(itemId, activeShare.whatsappText)
+                }
+                className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+              >
+                {isCopied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>Copiado</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5 shrink-0" />
+                    <span>Copiar texto</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setActiveShare(null)}
+          aria-label="Fechar prévia de compartilhamento"
+          className="min-h-[44px] min-w-[44px] rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 inline-flex items-center justify-center self-end sm:self-center shrink-0"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
   };
 
   return (
@@ -902,15 +1115,33 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                         )}
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => onDeleteMultipleItem(item.id)}
-                        aria-label="Excluir dica salva"
-                        className="min-h-[44px] min-w-[44px] rounded-xl text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center justify-center transition-colors shrink-0"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleShareMultipleResult(item)}
+                          disabled={generatingShareId === item.id}
+                          className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
+                        >
+                          {generatingShareId === item.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                          ) : (
+                            <Share2 className="w-3.5 h-3.5 shrink-0" />
+                          )}
+                          <span>Compartilhar resultado</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => onDeleteMultipleItem(item.id)}
+                          aria-label="Excluir dica salva"
+                          className="min-h-[44px] min-w-[44px] rounded-xl text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center justify-center transition-colors shrink-0"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
+
+                    {renderSharePreview(item.id)}
                   </article>
                 );
               })}
@@ -1281,39 +1512,59 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                         </div>
                       </div>
                     ) : (
-                      <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => startEdit(item)}
-                            className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 inline-flex items-center gap-1.5 whitespace-nowrap"
-                          >
-                            <Edit3 className="w-3.5 h-3.5 shrink-0" />
-                            <span>
-                              {hasResult ? 'Editar placar' : 'Registrar placar real'}
-                            </span>
-                          </button>
-
-                          {item.snapshot && (
+                      <>
+                        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <button
                               type="button"
-                              onClick={() => onLoadSnapshot(item)}
-                              className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200/80 dark:border-emerald-800 whitespace-nowrap"
+                              onClick={() => startEdit(item)}
+                              className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 inline-flex items-center gap-1.5 whitespace-nowrap"
                             >
-                              Abrir análise
+                              <Edit3 className="w-3.5 h-3.5 shrink-0" />
+                              <span>
+                                {hasResult ? 'Editar placar' : 'Registrar placar real'}
+                              </span>
                             </button>
-                          )}
+
+                            {item.snapshot && (
+                              <button
+                                type="button"
+                                onClick={() => onLoadSnapshot(item)}
+                                className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200/80 dark:border-emerald-800 whitespace-nowrap"
+                              >
+                                Abrir análise
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleShareAnalysisResult(item)}
+                              disabled={generatingShareId === item.id}
+                              className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
+                            >
+                              {generatingShareId === item.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                              ) : (
+                                <Share2 className="w-3.5 h-3.5 shrink-0" />
+                              )}
+                              <span>Compartilhar resultado</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => onDeleteItem(item.id)}
+                              aria-label="Excluir previsão"
+                              className="min-h-[44px] min-w-[44px] rounded-xl text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center justify-center transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => onDeleteItem(item.id)}
-                          aria-label="Excluir previsão"
-                          className="min-h-[44px] min-w-[44px] rounded-xl text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center justify-center transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                        {renderSharePreview(item.id)}
+                      </>
                     )}
                   </article>
                 );

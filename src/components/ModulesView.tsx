@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ExternalLink, AlertCircle, RotateCcw } from 'lucide-react';
 import { CompetitionFlag } from './CompetitionFlag.tsx';
+import { LastFiveGoalsChart } from './LastFiveGoalsChart.tsx';
 import { TeamCrest } from './TeamCrest.tsx';
 import type {
   AnalysisResponsePayload,
@@ -318,11 +319,19 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
 
       {/* MODULE 1: LAST 5 MATCHES */}
       {activeSubTab === 'last5' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {[
-            { label: 'Mandante', team: data.homeTeam, stats: data.module1LastFive.home, tone: 'emerald' },
-            { label: 'Visitante', team: data.awayTeam, stats: data.module1LastFive.away, tone: 'blue' },
-          ].map(({ label, team, stats, tone }) => (
+        <div className="space-y-4">
+          <LastFiveGoalsChart
+            homeTeam={data.homeTeam}
+            awayTeam={data.awayTeam}
+            homeStats={data.module1LastFive.home}
+            awayStats={data.module1LastFive.away}
+          />
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {[
+              { label: 'Mandante', team: data.homeTeam, stats: data.module1LastFive.home, tone: 'emerald' },
+              { label: 'Visitante', team: data.awayTeam, stats: data.module1LastFive.away, tone: 'blue' },
+            ].map(({ label, team, stats, tone }) => (
             <section
               key={team.name}
               className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5"
@@ -449,6 +458,7 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
               </div>
             </section>
           ))}
+          </div>
         </div>
       )}
 
