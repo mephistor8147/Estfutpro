@@ -1,5 +1,6 @@
 import React from 'react';
-import { Moon, Sun } from 'lucide-react';
+import type { User } from 'firebase/auth';
+import { Cloud, LogIn, LogOut, Moon, Sun } from 'lucide-react';
 import type {
   ActiveModulesConfig,
   AppSettings,
@@ -10,6 +11,11 @@ import type {
 interface SettingsViewProps {
   settings: AppSettings;
   theme: 'light' | 'dark';
+  authUser: User | null;
+  isSigningIn: boolean;
+  authError: string | null;
+  onSignInGoogle: () => void;
+  onSignOut: () => void;
   onChangeTheme: (next: 'light' | 'dark') => void;
   onUpdateSettings: (next: AppSettings) => void;
 }
@@ -17,6 +23,11 @@ interface SettingsViewProps {
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
   theme,
+  authUser,
+  isSigningIn,
+  authError,
+  onSignInGoogle,
+  onSignOut,
   onChangeTheme,
   onUpdateSettings,
 }) => {
@@ -83,6 +94,54 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Conta e Sincronização em Banco de Dados */}
+      <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/70 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <Cloud className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-display text-xl font-bold text-slate-900 dark:text-slate-100">
+                {authUser ? 'Conta conectada na nuvem' : 'Backup e sincronização na nuvem'}
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                {authUser
+                  ? `${authUser.displayName || 'Usuário'} (${authUser.email || ''}) · Análises, bilhetes e ajustes salvos no banco de dados.`
+                  : 'Entre com sua conta Google para salvar análises, bilhetes e configurações entre dispositivos.'}
+              </p>
+            </div>
+          </div>
+
+          {authUser ? (
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="w-full sm:w-auto min-h-[44px] px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+            >
+              <LogOut className="w-3.5 h-3.5 shrink-0" />
+              <span>Sair da conta</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onSignInGoogle}
+              disabled={isSigningIn}
+              className="w-full sm:w-auto min-h-[44px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
+            >
+              <LogIn className="w-3.5 h-3.5 shrink-0" />
+              <span>{isSigningIn ? 'Conectando...' : 'Conectar com Google'}</span>
+            </button>
+          )}
+        </div>
+
+        {authError && (
+          <div className="mt-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70 text-xs text-rose-800 dark:text-rose-200">
+            {authError}
+          </div>
+        )}
+      </section>
+
       {/* Aparência: Tema Claro / Escuro */}
       <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">

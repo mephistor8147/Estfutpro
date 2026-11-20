@@ -1,0 +1,365 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "Perfil Privado do Usuário",
+      "description": "Dados de identificação pessoal isolados por usuário autenticado.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID do proprietário no Firebase Auth.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Nome de exibição do usuário.",
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "E-mail verificado da conta.",
+          "maxLength": 254
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "URL do avatar do usuário.",
+          "maxLength": 512
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp de servidor da criação do perfil."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp de servidor da última atualização."
+        }
+      },
+      "required": ["ownerId", "email", "createdAt", "updatedAt"]
+    },
+    "UserPreferences": {
+      "title": "Preferências e Calibração do Usuário",
+      "description": "Configurações de tema, escopo de campeonatos, módulos ativos e pesos do modelo Poisson.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID do proprietário.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "theme": {
+          "type": "string",
+          "enum": ["light", "dark"],
+          "description": "Tema visual preferido.",
+          "maxLength": 10
+        },
+        "championshipScope": {
+          "type": "string",
+          "enum": ["brasil", "principais", "todos"],
+          "description": "Escopo de campeonatos.",
+          "maxLength": 20
+        },
+        "updateMode": {
+          "type": "string",
+          "enum": ["auto", "manual"],
+          "description": "Modo de atualização ao selecionar confronto.",
+          "maxLength": 20
+        },
+        "activeModules": {
+          "type": "object",
+          "description": "Mapa booleano dos módulos estatísticos habilitados."
+        },
+        "recentFormWeight": {
+          "type": "number",
+          "description": "Peso das últimas 5 partidas entre 0.15 e 0.55."
+        },
+        "homeAdvantageMultiplier": {
+          "type": "number",
+          "description": "Fator de mando de campo entre 1.00 e 1.25."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp de criação."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp da última atualização."
+        }
+      },
+      "required": [
+        "ownerId",
+        "theme",
+        "championshipScope",
+        "updateMode",
+        "activeModules",
+        "recentFormWeight",
+        "homeAdvantageMultiplier",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PredictionAnalysis": {
+      "title": "Análise 1X2 Salva",
+      "description": "Previsão estatística 1X2 com probabilidades Poisson, placar ao vivo e placar real.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID do proprietário.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "id": {
+          "type": "string",
+          "description": "Identificador da análise.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "competition": {
+          "type": "string",
+          "description": "Nome do campeonato.",
+          "maxLength": 140
+        },
+        "homeTeam": {
+          "type": "object",
+          "description": "Identidade do time mandante."
+        },
+        "awayTeam": {
+          "type": "object",
+          "description": "Identidade do time visitante."
+        },
+        "predictedHomePct": {
+          "type": "number",
+          "description": "Probabilidade prevista do mandante (0-100)."
+        },
+        "predictedDrawPct": {
+          "type": "number",
+          "description": "Probabilidade prevista de empate (0-100)."
+        },
+        "predictedAwayPct": {
+          "type": "number",
+          "description": "Probabilidade prevista do visitante (0-100)."
+        },
+        "expectedGoalsHome": {
+          "type": "number",
+          "description": "xG do mandante."
+        },
+        "expectedGoalsAway": {
+          "type": "number",
+          "description": "xG do visitante."
+        },
+        "mostLikelyScore": {
+          "type": "string",
+          "description": "Placar mais provável.",
+          "maxLength": 24
+        },
+        "over25Pct": {
+          "type": "number",
+          "description": "Probabilidade de mais de 2,5 gols."
+        },
+        "bttsPct": {
+          "type": "number",
+          "description": "Probabilidade de ambas marcam."
+        },
+        "liveScore": {
+          "type": "object",
+          "description": "Placar ao vivo sincronizado da web."
+        },
+        "actualScore": {
+          "type": "object",
+          "description": "Placar final registrado manualmente ou via placar oficial."
+        },
+        "snapshot": {
+          "type": "object",
+          "description": "Snapshot completo dos 5 módulos para reabrir a análise."
+        },
+        "savedAtIso": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Data ISO de salvamento original no histórico.",
+          "maxLength": 64
+        },
+        "updatedAtIso": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Data ISO dos dados da análise.",
+          "maxLength": 64
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp de servidor da criação."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp de servidor da atualização."
+        }
+      },
+      "required": [
+        "ownerId",
+        "id",
+        "competition",
+        "homeTeam",
+        "awayTeam",
+        "predictedHomePct",
+        "predictedDrawPct",
+        "predictedAwayPct",
+        "expectedGoalsHome",
+        "expectedGoalsAway",
+        "mostLikelyScore",
+        "over25Pct",
+        "bttsPct",
+        "savedAtIso",
+        "updatedAtIso",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MultipleSlip": {
+      "title": "Dica Múltipla ou Bilhete Salvo",
+      "description": "Múltipla salva de Dicas Quentes, Super Dica Combinada ou bilhete importado por imagem.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID do proprietário.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "id": {
+          "type": "string",
+          "description": "Identificador do bilhete.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "tipSignature": {
+          "type": "string",
+          "description": "Assinatura única para evitar duplicidade.",
+          "maxLength": 500
+        },
+        "competition": {
+          "type": "string",
+          "description": "Título da competição ou bilhete.",
+          "maxLength": 180
+        },
+        "leagueSlug": {
+          "type": "string",
+          "description": "Slug da competição.",
+          "maxLength": 80
+        },
+        "dayFilter": {
+          "type": "string",
+          "enum": ["all", "today", "tomorrow"],
+          "description": "Filtro de dia da seleção.",
+          "maxLength": 20
+        },
+        "legs": {
+          "type": "array",
+          "description": "Lista limitada de seleções do bilhete (1 a 20 jogos)."
+        },
+        "combinedProbabilityPct": {
+          "type": "number",
+          "description": "Probabilidade combinada estimada."
+        },
+        "totalOdd": {
+          "type": "number",
+          "description": "Odd total do bilhete."
+        },
+        "stake": {
+          "type": "number",
+          "description": "Valor apostado ou simulado em BRL."
+        },
+        "potentialReturn": {
+          "type": "number",
+          "description": "Retorno potencial em BRL."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "won", "lost"],
+          "description": "Status consolidado do bilhete.",
+          "maxLength": 20
+        },
+        "source": {
+          "type": "string",
+          "enum": ["tip", "image"],
+          "description": "Origem do registro (dica gerada ou imagem enviada).",
+          "maxLength": 20
+        },
+        "bookmaker": {
+          "type": "string",
+          "description": "Casa de apostas detectada no bilhete.",
+          "maxLength": 100
+        },
+        "notes": {
+          "type": "string",
+          "description": "Observações sobre o bilhete.",
+          "maxLength": 300
+        },
+        "resolvedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Data ISO de resolução do bilhete.",
+          "maxLength": 64
+        },
+        "savedAtIso": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Data ISO de criação original.",
+          "maxLength": 64
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp de servidor da criação."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp de servidor da última atualização."
+        }
+      },
+      "required": [
+        "ownerId",
+        "id",
+        "tipSignature",
+        "competition",
+        "leagueSlug",
+        "dayFilter",
+        "legs",
+        "combinedProbabilityPct",
+        "totalOdd",
+        "stake",
+        "potentialReturn",
+        "status",
+        "savedAtIso",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/private/{profileDocId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Perfil privado com PII isolado por usuário."
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/UserPreferences" },
+      "description": "Configurações e calibração do modelo estatístico por usuário."
+    },
+    "/users/{userId}/analyses/{analysisId}": {
+      "schema": { "$ref": "#/entities/PredictionAnalysis" },
+      "description": "Histórico de análises 1X2 salvas pelo usuário."
+    },
+    "/users/{userId}/multiples/{multipleId}": {
+      "schema": { "$ref": "#/entities/MultipleSlip" },
+      "description": "Histórico de múltiplas, super dicas combinadas e bilhetes importados por usuário."
+    }
+  }
+}

@@ -1,0 +1,336 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Entity validators
+    function isValidProfile(data, userId) {
+      return data.keys().hasAll(['ownerId', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerId', 'displayName', 'email', 'photoURL', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.ownerId == request.auth.uid
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 120))
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 512))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPreferences(data, userId) {
+      return data.keys().hasAll([
+          'ownerId',
+          'theme',
+          'championshipScope',
+          'updateMode',
+          'activeModules',
+          'recentFormWeight',
+          'homeAdvantageMultiplier',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId',
+          'theme',
+          'championshipScope',
+          'updateMode',
+          'activeModules',
+          'recentFormWeight',
+          'homeAdvantageMultiplier',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.ownerId == request.auth.uid
+        && data.theme is string && data.theme.size() <= 10 && data.theme in ['light', 'dark']
+        && data.championshipScope is string && data.championshipScope.size() <= 20 && data.championshipScope in ['brasil', 'principais', 'todos']
+        && data.updateMode is string && data.updateMode.size() <= 20 && data.updateMode in ['auto', 'manual']
+        && data.activeModules is map
+        && data.activeModules.keys().hasAll([
+          'lastFive',
+          'headToHead',
+          'standings',
+          'poisson',
+          'goalsAndBtts',
+          'corners',
+          'cards',
+          'contextFactors'
+        ])
+        && data.activeModules.keys().hasOnly([
+          'lastFive',
+          'headToHead',
+          'standings',
+          'poisson',
+          'goalsAndBtts',
+          'corners',
+          'cards',
+          'contextFactors'
+        ])
+        && data.recentFormWeight is number && data.recentFormWeight >= 0.10 && data.recentFormWeight <= 0.65
+        && data.homeAdvantageMultiplier is number && data.homeAdvantageMultiplier >= 0.90 && data.homeAdvantageMultiplier <= 1.40
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPredictionAnalysis(data, userId, analysisId) {
+      return data.keys().hasAll([
+          'ownerId',
+          'id',
+          'competition',
+          'homeTeam',
+          'awayTeam',
+          'predictedHomePct',
+          'predictedDrawPct',
+          'predictedAwayPct',
+          'expectedGoalsHome',
+          'expectedGoalsAway',
+          'mostLikelyScore',
+          'over25Pct',
+          'bttsPct',
+          'savedAtIso',
+          'updatedAtIso',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId',
+          'id',
+          'competition',
+          'homeTeam',
+          'awayTeam',
+          'predictedHomePct',
+          'predictedDrawPct',
+          'predictedAwayPct',
+          'expectedGoalsHome',
+          'expectedGoalsAway',
+          'mostLikelyScore',
+          'over25Pct',
+          'bttsPct',
+          'liveScore',
+          'actualScore',
+          'snapshot',
+          'savedAtIso',
+          'updatedAtIso',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.ownerId == request.auth.uid
+        && isValidId(data.id)
+        && data.id == analysisId
+        && data.competition is string && data.competition.size() >= 1 && data.competition.size() <= 140
+        && data.homeTeam is map
+        && data.awayTeam is map
+        && data.predictedHomePct is number && data.predictedHomePct >= 0 && data.predictedHomePct <= 100
+        && data.predictedDrawPct is number && data.predictedDrawPct >= 0 && data.predictedDrawPct <= 100
+        && data.predictedAwayPct is number && data.predictedAwayPct >= 0 && data.predictedAwayPct <= 100
+        && data.expectedGoalsHome is number && data.expectedGoalsHome >= 0 && data.expectedGoalsHome <= 15
+        && data.expectedGoalsAway is number && data.expectedGoalsAway >= 0 && data.expectedGoalsAway <= 15
+        && data.mostLikelyScore is string && data.mostLikelyScore.size() >= 1 && data.mostLikelyScore.size() <= 24
+        && data.over25Pct is number && data.over25Pct >= 0 && data.over25Pct <= 100
+        && data.bttsPct is number && data.bttsPct >= 0 && data.bttsPct <= 100
+        && (!('liveScore' in data) || data.liveScore is map)
+        && (!('actualScore' in data) || data.actualScore is map)
+        && (!('snapshot' in data) || data.snapshot is map)
+        && data.savedAtIso is string && data.savedAtIso.size() >= 1 && data.savedAtIso.size() <= 64
+        && data.updatedAtIso is string && data.updatedAtIso.size() >= 1 && data.updatedAtIso.size() <= 64
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMultipleSlip(data, userId, multipleId) {
+      return data.keys().hasAll([
+          'ownerId',
+          'id',
+          'tipSignature',
+          'competition',
+          'leagueSlug',
+          'dayFilter',
+          'legs',
+          'combinedProbabilityPct',
+          'totalOdd',
+          'stake',
+          'potentialReturn',
+          'status',
+          'savedAtIso',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId',
+          'id',
+          'tipSignature',
+          'competition',
+          'leagueSlug',
+          'dayFilter',
+          'legs',
+          'combinedProbabilityPct',
+          'totalOdd',
+          'stake',
+          'potentialReturn',
+          'status',
+          'source',
+          'bookmaker',
+          'notes',
+          'resolvedAt',
+          'savedAtIso',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.ownerId == request.auth.uid
+        && isValidId(data.id)
+        && data.id == multipleId
+        && data.tipSignature is string && data.tipSignature.size() >= 1 && data.tipSignature.size() <= 500
+        && data.competition is string && data.competition.size() >= 1 && data.competition.size() <= 180
+        && data.leagueSlug is string && data.leagueSlug.size() >= 1 && data.leagueSlug.size() <= 80
+        && data.dayFilter is string && data.dayFilter.size() <= 20 && data.dayFilter in ['all', 'today', 'tomorrow']
+        && data.legs is list && data.legs.size() >= 1 && data.legs.size() <= 20 && data.legs[0] is map
+        && data.combinedProbabilityPct is number && data.combinedProbabilityPct >= 0 && data.combinedProbabilityPct <= 100
+        && data.totalOdd is number && data.totalOdd >= 1 && data.totalOdd <= 100000
+        && data.stake is number && data.stake >= 0 && data.stake <= 10000000
+        && data.potentialReturn is number && data.potentialReturn >= 0 && data.potentialReturn <= 100000000
+        && data.status is string && data.status.size() <= 20 && data.status in ['pending', 'won', 'lost']
+        && (!('source' in data) || (data.source is string && data.source.size() <= 20 && data.source in ['tip', 'image']))
+        && (!('bookmaker' in data) || (data.bookmaker is string && data.bookmaker.size() <= 100))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 300))
+        && (!('resolvedAt' in data) || (data.resolvedAt is string && data.resolvedAt.size() <= 64))
+        && data.savedAtIso is string && data.savedAtIso.size() >= 1 && data.savedAtIso.size() <= 64
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // 1. Private User Profile (PII isolated)
+    match /users/{userId}/private/{profileDocId} {
+      allow get: if isValidId(userId) && isValidId(profileDocId) && profileDocId == 'profile' && isOwner(userId);
+      allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+      allow create: if isValidId(userId)
+        && isValidId(profileDocId)
+        && profileDocId == 'profile'
+        && isOwner(userId)
+        && isValidProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isValidId(profileDocId)
+        && profileDocId == 'profile'
+        && isOwner(userId)
+        && isValidProfile(incoming(), userId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'photoURL', 'updatedAt']);
+      allow delete: if isValidId(userId) && isValidId(profileDocId) && profileDocId == 'profile' && isOwner(userId);
+    }
+
+    // 2. User Settings & Calibration Preferences
+    match /users/{userId}/settings/{settingId} {
+      allow get: if isValidId(userId) && isValidId(settingId) && settingId == 'preferences' && isOwner(userId);
+      allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+      allow create: if isValidId(userId)
+        && isValidId(settingId)
+        && settingId == 'preferences'
+        && isOwner(userId)
+        && isValidUserPreferences(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isValidId(settingId)
+        && settingId == 'preferences'
+        && isOwner(userId)
+        && isValidUserPreferences(incoming(), userId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'theme',
+          'championshipScope',
+          'updateMode',
+          'activeModules',
+          'recentFormWeight',
+          'homeAdvantageMultiplier',
+          'updatedAt'
+        ]);
+      allow delete: if isValidId(userId) && isValidId(settingId) && settingId == 'preferences' && isOwner(userId);
+    }
+
+    // 3. Saved 1X2 Analyses
+    match /users/{userId}/analyses/{analysisId} {
+      allow get: if isValidId(userId) && isValidId(analysisId) && isOwner(userId);
+      allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+      allow create: if isValidId(userId)
+        && isValidId(analysisId)
+        && isOwner(userId)
+        && isValidPredictionAnalysis(incoming(), userId, analysisId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isValidId(analysisId)
+        && isOwner(userId)
+        && isValidPredictionAnalysis(incoming(), userId, analysisId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['liveScore', 'actualScore', 'updatedAt']);
+      allow delete: if isValidId(userId) && isValidId(analysisId) && isOwner(userId);
+    }
+
+    // 4. Saved Multiple Slips / Hot Tips / Imported Bet Slips
+    match /users/{userId}/multiples/{multipleId} {
+      allow get: if isValidId(userId) && isValidId(multipleId) && isOwner(userId);
+      allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+      allow create: if isValidId(userId)
+        && isValidId(multipleId)
+        && isOwner(userId)
+        && isValidMultipleSlip(incoming(), userId, multipleId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isValidId(multipleId)
+        && isOwner(userId)
+        && isValidMultipleSlip(incoming(), userId, multipleId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().id == existing().id
+        && incoming().tipSignature == existing().tipSignature
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['legs', 'status', 'resolvedAt', 'updatedAt'])
+        );
+      allow delete: if isValidId(userId) && isValidId(multipleId) && isOwner(userId);
+    }
+  }
+}

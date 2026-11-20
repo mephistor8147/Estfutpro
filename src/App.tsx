@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { onAuthStateChanged, type User } from 'firebase/auth';
 import {
   ArrowLeftRight,
   BarChart2,
@@ -8,12 +9,34 @@ import {
   Flame,
   Layers,
   Loader2,
+  LogIn,
+  LogOut,
   Moon,
   RefreshCw,
   Search,
   SlidersHorizontal,
   Sun,
 } from 'lucide-react';
+import {
+  auth,
+  signInWithGooglePopup,
+  signOutFirebase,
+} from './firebase.ts';
+import {
+  createUserAnalysis,
+  createUserMultiple,
+  deleteUserAnalysis,
+  deleteUserMultiple,
+  migrateLocalDataToFirestore,
+  sanitizeDocId,
+  saveUserPreferences,
+  subscribeUserAnalyses,
+  subscribeUserMultiples,
+  subscribeUserPreferences,
+  updateUserAnalysisScore,
+  updateUserMultipleSlip,
+  upsertUserProfile,
+} from './lib/firestoreSync.ts';
 import { calculatePoissonModel } from './lib/poisson.ts';
 import { CompetitionFlag } from './components/CompetitionFlag.tsx';
 import { TeamCrest } from './components/TeamCrest.tsx';
@@ -157,11 +180,137 @@ export default function App() {
   );
   const [liveScoresUpdatedAt, setLiveScoresUpdatedAt] = useState<string | null>(null);
 
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [firestoreError, setFirestoreError] = useState<Error | null>(null);
+
   const historyRef = useRef(history);
   historyRef.current = history;
   const multipleHistoryRef = useRef(multipleHistory);
   multipleHistoryRef.current = multipleHistory;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+  const authUserRef = useRef(authUser);
+  authUserRef.current = authUser;
+  const migratedUidRef = useRef<string | null>(null);
+  const skipCloudPrefWriteRef = useRef(false);
   const modulesDetailsRef = useRef<HTMLDivElement | null>(null);
+
+  if (firestoreError) {
+    throw firestoreError;
+  }
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setAuthUser(user);
+      setIsAuthReady(true);
+      if (!user) {
+        migratedUidRef.current = null;
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthReady || !authUser || !authUser.emailVerified) {
+      return;
+    }
+
+    const uid = authUser.uid;
+    let cancelled = false;
+
+    const initCloudSync = async () => {
+      try {
+        await upsertUserProfile(authUser);
+        if (migratedUidRef.current !== uid) {
+          migratedUidRef.current = uid;
+          await migrateLocalDataToFirestore(uid, {
+            history: historyRef.current,
+            multipleHistory: multipleHistoryRef.current,
+            settings: settingsRef.current,
+            theme: themeRef.current,
+          });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setFirestoreError(
+            err instanceof Error ? err : new Error(String(err))
+          );
+        }
+      }
+    };
+
+    void initCloudSync();
+
+    const unsubPrefs = subscribeUserPreferences(
+      uid,
+      (prefs) => {
+        if (!prefs) return;
+        skipCloudPrefWriteRef.current = true;
+        setSettings(prefs.settings);
+        setTheme(prefs.theme);
+      },
+      (err) => {
+        if (!cancelled) setFirestoreError(err);
+      }
+    );
+
+    const unsubAnalyses = subscribeUserAnalyses(
+      uid,
+      (items) => {
+        setHistory(items);
+      },
+      (err) => {
+        if (!cancelled) setFirestoreError(err);
+      }
+    );
+
+    const unsubMultiples = subscribeUserMultiples(
+      uid,
+      (items) => {
+        setMultipleHistory(items);
+      },
+      (err) => {
+        if (!cancelled) setFirestoreError(err);
+      }
+    );
+
+    return () => {
+      cancelled = true;
+      unsubPrefs();
+      unsubAnalyses();
+      unsubMultiples();
+    };
+  }, [isAuthReady, authUser]);
+
+  const handleSignInGoogle = useCallback(async () => {
+    setIsSigningIn(true);
+    setAuthError(null);
+    try {
+      await signInWithGooglePopup();
+    } catch (err: any) {
+      if (err?.code !== 'auth/popup-closed-by-user') {
+        setAuthError(
+          'Não foi possível concluir o login com Google. Verifique se pop-ups estão permitidos.'
+        );
+      }
+    } finally {
+      setIsSigningIn(false);
+    }
+  }, []);
+
+  const handleSignOut = useCallback(async () => {
+    setAuthError(null);
+    try {
+      await signOutFirebase();
+    } catch {
+      setAuthError('Não foi possível encerrar a sessão agora.');
+    }
+  }, []);
 
   const [homeTeamInput, setHomeTeamInput] = useState('Flamengo');
   const [awayTeamInput, setAwayTeamInput] = useState('Palmeiras');
@@ -198,6 +347,20 @@ export default function App() {
       // Ignore
     }
   }, [settings]);
+
+  useEffect(() => {
+    if (!isAuthReady || !authUser || !authUser.emailVerified) return;
+    if (skipCloudPrefWriteRef.current) {
+      skipCloudPrefWriteRef.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void saveUserPreferences(authUser.uid, settings, theme).catch((err) =>
+        setFirestoreError(err instanceof Error ? err : new Error(String(err)))
+      );
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [isAuthReady, authUser, settings, theme]);
 
   useEffect(() => {
     try {
@@ -414,7 +577,7 @@ export default function App() {
   const handleSaveToHistory = () => {
     if (!analysis || !model || isSavedInHistory) return;
     const entry: PredictionHistoryItem = {
-      id: analysis.id,
+      id: sanitizeDocId(analysis.id),
       createdAt: new Date().toISOString(),
       updatedAt: analysis.updatedAt,
       competition: analysis.data.competition,
@@ -431,27 +594,48 @@ export default function App() {
       snapshot: analysis,
     };
     setHistory((prev) => [entry, ...prev]);
+    const user = authUserRef.current;
+    if (user && user.emailVerified) {
+      void createUserAnalysis(user.uid, entry).catch((err) =>
+        setFirestoreError(err instanceof Error ? err : new Error(String(err)))
+      );
+    }
   };
 
   const handleRecordScore = (id: string, homeGoals: number, awayGoals: number) => {
+    const nextActualScore = {
+      homeGoals,
+      awayGoals,
+      recordedAt: new Date().toISOString(),
+    };
     setHistory((prev) =>
       prev.map((item) =>
         item.id === id
           ? {
               ...item,
-              actualScore: {
-                homeGoals,
-                awayGoals,
-                recordedAt: new Date().toISOString(),
-              },
+              actualScore: nextActualScore,
             }
           : item
       )
     );
+    const user = authUserRef.current;
+    if (user && user.emailVerified) {
+      void updateUserAnalysisScore(user.uid, id, {
+        actualScore: nextActualScore,
+      }).catch((err) =>
+        setFirestoreError(err instanceof Error ? err : new Error(String(err)))
+      );
+    }
   };
 
   const handleDeleteHistory = (id: string) => {
     setHistory((prev) => prev.filter((item) => item.id !== id));
+    const user = authUserRef.current;
+    if (user && user.emailVerified) {
+      void deleteUserAnalysis(user.uid, id).catch((err) =>
+        setFirestoreError(err instanceof Error ? err : new Error(String(err)))
+      );
+    }
   };
 
   const handleLoadSnapshot = (item: PredictionHistoryItem) => {
@@ -529,7 +713,7 @@ export default function App() {
   const handleSaveMultipleTip = (payload: SaveMultiplePayload) => {
     if (!currentTipSignature || isMultipleSavedInHistory) return;
     const item: MultipleHistoryItem = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: sanitizeDocId(`${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
       tipSignature: currentTipSignature,
       createdAt: new Date().toISOString(),
       competition: payload.tip.competition,
@@ -549,6 +733,12 @@ export default function App() {
       status: 'pending',
     };
     setMultipleHistory((prev) => [item, ...prev]);
+    const user = authUserRef.current;
+    if (user && user.emailVerified) {
+      void createUserMultiple(user.uid, item).catch((err) =>
+        setFirestoreError(err instanceof Error ? err : new Error(String(err)))
+      );
+    }
   };
 
   const savedSuperTipSignatures = useMemo(
@@ -560,7 +750,7 @@ export default function App() {
     if (!payload.signature || savedSuperTipSignatures.has(payload.signature)) return;
     const defaultStake = 50;
     const item: MultipleHistoryItem = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: sanitizeDocId(`${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
       tipSignature: payload.signature,
       createdAt: new Date().toISOString(),
       competition: payload.title,
@@ -583,6 +773,12 @@ export default function App() {
           : 'Super Dica Combinada multi-mercados (melhor margem de acerto)',
     };
     setMultipleHistory((prev) => [item, ...prev]);
+    const user = authUserRef.current;
+    if (user && user.emailVerified) {
+      void createUserMultiple(user.uid, item).catch((err) =>
+        setFirestoreError(err instanceof Error ? err : new Error(String(err)))
+      );
+    }
   };
 
   const deriveTipStatus = (legs: { status: MultipleLegStatus }[]): MultipleTipStatus => {
@@ -596,6 +792,26 @@ export default function App() {
     legIndex: number,
     status: MultipleLegStatus
   ) => {
+    const user = authUserRef.current;
+    const current = multipleHistoryRef.current.find((m) => m.id === itemId);
+    let nextSyncPayload: {
+      legs: typeof current extends undefined ? never : NonNullable<typeof current>['legs'];
+      status: MultipleTipStatus;
+      resolvedAt?: string;
+    } | null = null;
+
+    if (current) {
+      const nextLegs = current.legs.map((leg, idx) =>
+        idx === legIndex ? { ...leg, status } : leg
+      );
+      const nextStatus = deriveTipStatus(nextLegs);
+      nextSyncPayload = {
+        legs: nextLegs,
+        status: nextStatus,
+        resolvedAt: nextStatus === 'pending' ? undefined : new Date().toISOString(),
+      };
+    }
+
     setMultipleHistory((prev) =>
       prev.map((item) => {
         if (item.id !== itemId) return item;
@@ -611,9 +827,40 @@ export default function App() {
         };
       })
     );
+
+    if (user && user.emailVerified && nextSyncPayload) {
+      void updateUserMultipleSlip(user.uid, itemId, nextSyncPayload).catch((err) =>
+        setFirestoreError(err instanceof Error ? err : new Error(String(err)))
+      );
+    }
   };
 
   const handleResolveMultipleTip = (itemId: string, status: MultipleTipStatus) => {
+    const user = authUserRef.current;
+    const current = multipleHistoryRef.current.find((m) => m.id === itemId);
+    let nextSyncPayload: {
+      legs: NonNullable<typeof current>['legs'];
+      status: MultipleTipStatus;
+      resolvedAt?: string;
+    } | null = null;
+
+    if (current) {
+      const nextLegs =
+        status === 'won'
+          ? current.legs.map((leg) => ({ ...leg, status: 'won' as MultipleLegStatus }))
+          : status === 'pending'
+            ? current.legs.map((leg) => ({
+                ...leg,
+                status: 'pending' as MultipleLegStatus,
+              }))
+            : current.legs;
+      nextSyncPayload = {
+        legs: nextLegs,
+        status,
+        resolvedAt: status === 'pending' ? undefined : new Date().toISOString(),
+      };
+    }
+
     setMultipleHistory((prev) =>
       prev.map((item) => {
         if (item.id !== itemId) return item;
@@ -634,10 +881,22 @@ export default function App() {
         };
       })
     );
+
+    if (user && user.emailVerified && nextSyncPayload) {
+      void updateUserMultipleSlip(user.uid, itemId, nextSyncPayload).catch((err) =>
+        setFirestoreError(err instanceof Error ? err : new Error(String(err)))
+      );
+    }
   };
 
   const handleDeleteMultipleItem = (itemId: string) => {
     setMultipleHistory((prev) => prev.filter((item) => item.id !== itemId));
+    const user = authUserRef.current;
+    if (user && user.emailVerified) {
+      void deleteUserMultiple(user.uid, itemId).catch((err) =>
+        setFirestoreError(err instanceof Error ? err : new Error(String(err)))
+      );
+    }
   };
 
   const refreshHistoryLiveScores = useCallback(
@@ -732,6 +991,7 @@ export default function App() {
           else if (r.state === 'post') finishedCount += 1;
         }
 
+        const updatedMultiplesToSync: MultipleHistoryItem[] = [];
         setMultipleHistory((prev) =>
           prev.map((item) => {
             let changed = false;
@@ -784,7 +1044,7 @@ export default function App() {
 
             if (!changed) return item;
             const nextStatus = deriveTipStatus(nextLegs);
-            return {
+            const updatedItem: MultipleHistoryItem = {
               ...item,
               legs: nextLegs,
               status: nextStatus,
@@ -793,9 +1053,12 @@ export default function App() {
                   ? item.resolvedAt
                   : item.resolvedAt || new Date().toISOString(),
             };
+            updatedMultiplesToSync.push(updatedItem);
+            return updatedItem;
           })
         );
 
+        const updatedAnalysesToSync: PredictionHistoryItem[] = [];
         setHistory((prev) =>
           prev.map((item) => {
             const match = byKey.get(`ana:${item.id}`);
@@ -826,13 +1089,36 @@ export default function App() {
                   }
                 : item.actualScore;
 
-            return {
+            const updatedAnalysis: PredictionHistoryItem = {
               ...item,
               liveScore: nextLiveScore,
               actualScore: nextActual,
             };
+            updatedAnalysesToSync.push(updatedAnalysis);
+            return updatedAnalysis;
           })
         );
+
+        const user = authUserRef.current;
+        if (user && user.emailVerified) {
+          for (const m of updatedMultiplesToSync) {
+            void updateUserMultipleSlip(user.uid, m.id, {
+              legs: m.legs,
+              status: m.status,
+              resolvedAt: m.resolvedAt,
+            }).catch((err) =>
+              setFirestoreError(err instanceof Error ? err : new Error(String(err)))
+            );
+          }
+          for (const a of updatedAnalysesToSync) {
+            void updateUserAnalysisScore(user.uid, a.id, {
+              liveScore: a.liveScore,
+              actualScore: a.actualScore,
+            }).catch((err) =>
+              setFirestoreError(err instanceof Error ? err : new Error(String(err)))
+            );
+          }
+        }
 
         setLiveScoresUpdatedAt(json.checkedAt || new Date().toISOString());
 
@@ -931,9 +1217,19 @@ export default function App() {
 
   const handleImportBetSlip = useCallback(
     (item: MultipleHistoryItem) => {
-      const next = [item, ...multipleHistoryRef.current];
+      const normalizedItem: MultipleHistoryItem = {
+        ...item,
+        id: sanitizeDocId(item.id),
+      };
+      const next = [normalizedItem, ...multipleHistoryRef.current];
       multipleHistoryRef.current = next;
       setMultipleHistory(next);
+      const user = authUserRef.current;
+      if (user && user.emailVerified) {
+        void createUserMultiple(user.uid, normalizedItem).catch((err) =>
+          setFirestoreError(err instanceof Error ? err : new Error(String(err)))
+        );
+      }
       setMultipleCheckMessage(
         'Bilhete importado no histórico. Buscando placares ao vivo na web...'
       );
@@ -997,23 +1293,47 @@ export default function App() {
             })}
           </nav>
 
-          {/* Single Primary Header Control: Light / Dark Theme Toggle */}
-          <div className="flex items-center shrink-0">
+          {/* Header Controls: Google Cloud Account + Theme Toggle */}
+          <div className="flex items-center gap-2 shrink-0">
+            {authUser ? (
+              <button
+                type="button"
+                onClick={handleSignOut}
+                title={`Conectado como ${authUser.email || authUser.displayName || 'usuário'} · Toque para sair`}
+                className="min-h-[44px] px-2.5 sm:px-3 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/70 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              >
+                <span className="max-w-[96px] truncate">
+                  {authUser.displayName?.split(' ')[0] || 'Conta'}
+                </span>
+                <LogOut className="w-3.5 h-3.5 shrink-0" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSignInGoogle}
+                disabled={isSigningIn}
+                className="min-h-[44px] px-2.5 sm:px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
+              >
+                <LogIn className="w-3.5 h-3.5 shrink-0" />
+                <span>{isSigningIn ? 'Entrando...' : 'Entrar'}</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}
               aria-label={theme === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro'}
-              className="min-h-[44px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              className="min-h-[44px] px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
             >
               {theme === 'dark' ? (
                 <>
                   <Sun className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                  <span>Tema claro</span>
+                  <span className="hidden sm:inline">Tema claro</span>
                 </>
               ) : (
                 <>
                   <Moon className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-                  <span>Tema escuro</span>
+                  <span className="hidden sm:inline">Tema escuro</span>
                 </>
               )}
             </button>
@@ -1441,6 +1761,9 @@ export default function App() {
             isCheckingMultipleResults={isCheckingMultipleResults}
             multipleCheckMessage={multipleCheckMessage}
             liveScoresUpdatedAt={liveScoresUpdatedAt}
+            authUser={authUser}
+            isSigningIn={isSigningIn}
+            onSignInGoogle={handleSignInGoogle}
             onRecordScore={handleRecordScore}
             onDeleteItem={handleDeleteHistory}
             onLoadSnapshot={handleLoadSnapshot}
@@ -1457,6 +1780,11 @@ export default function App() {
           <SettingsView
             settings={settings}
             theme={theme}
+            authUser={authUser}
+            isSigningIn={isSigningIn}
+            authError={authError}
+            onSignInGoogle={handleSignInGoogle}
+            onSignOut={handleSignOut}
             onChangeTheme={setTheme}
             onUpdateSettings={setSettings}
           />

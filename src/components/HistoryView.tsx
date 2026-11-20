@@ -1,15 +1,18 @@
 import React, { useEffect, useState } from 'react';
+import type { User } from 'firebase/auth';
 import {
   BarChart3,
   Check,
   CheckCircle2,
   Clock,
+  Cloud,
   Copy,
   Download,
   Edit3,
   Flame,
   ImagePlus,
   Loader2,
+  LogIn,
   RefreshCw,
   Share2,
   Trash2,
@@ -41,6 +44,9 @@ interface HistoryViewProps {
   isCheckingMultipleResults: boolean;
   multipleCheckMessage: string | null;
   liveScoresUpdatedAt: string | null;
+  authUser: User | null;
+  isSigningIn: boolean;
+  onSignInGoogle: () => void;
   onRecordScore: (id: string, homeGoals: number, awayGoals: number) => void;
   onDeleteItem: (id: string) => void;
   onLoadSnapshot: (item: PredictionHistoryItem) => void;
@@ -202,6 +208,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   isCheckingMultipleResults,
   multipleCheckMessage,
   liveScoresUpdatedAt,
+  authUser,
+  isSigningIn,
+  onSignInGoogle,
   onRecordScore,
   onDeleteItem,
   onLoadSnapshot,
@@ -520,6 +529,26 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
   return (
     <div className="space-y-4">
+      {!authUser && (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Cloud className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              Conecte sua conta Google para salvar todo o histórico no banco de dados na nuvem e acessar em qualquer dispositivo.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onSignInGoogle}
+            disabled={isSigningIn}
+            className="w-full sm:w-auto min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
+          >
+            <LogIn className="w-3.5 h-3.5 shrink-0" />
+            <span>{isSigningIn ? 'Conectando...' : 'Conectar com Google'}</span>
+          </button>
+        </div>
+      )}
+
       {/* Sub-navigation Switcher + Primary Import CTA */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
         <div
