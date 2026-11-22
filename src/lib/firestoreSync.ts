@@ -87,23 +87,23 @@ export async function upsertUserProfile(user: User): Promise<void> {
 
   try {
     const snap = await getDoc(ref);
-    const payload: Record<string, unknown> = {
-      ownerId: user.uid,
+    const updatePayload: Record<string, unknown> = {
       email: clampStr(user.email, 254),
       updatedAt: serverTimestamp(),
     };
     if (user.displayName) {
-      payload.displayName = clampStr(user.displayName, 120);
+      updatePayload.displayName = clampStr(user.displayName, 120);
     }
     if (user.photoURL) {
-      payload.photoURL = clampStr(user.photoURL, 512);
+      updatePayload.photoURL = clampStr(user.photoURL, 512);
     }
 
     if (snap.exists()) {
-      await updateDoc(ref, payload);
+      await updateDoc(ref, updatePayload);
     } else {
       await setDoc(ref, {
-        ...payload,
+        ownerId: user.uid,
+        ...updatePayload,
         createdAt: serverTimestamp(),
       });
     }
@@ -609,6 +609,7 @@ export async function migrateLocalDataToFirestore(
         existingSnap.docs.map((d) => String(d.data().tipSignature || ''))
       );
       for (const item of localData.multipleHistory) {
+        if (!Array.isArray(item.legs) || item.legs.length === 0) continue;
         const docId = sanitizeDocId(item.id);
         if (!existingIds.has(docId) && !existingSigs.has(item.tipSignature)) {
           await createUserMultiple(uid, item);

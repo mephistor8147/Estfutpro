@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import {
+  AlertCircle,
   ArrowLeftRight,
   BarChart2,
   BookmarkCheck,
@@ -16,9 +17,12 @@ import {
   Search,
   SlidersHorizontal,
   Sun,
+  X,
 } from 'lucide-react';
 import {
   auth,
+  completeGoogleRedirectSignIn,
+  formatFirebaseAuthError,
   signInWithGooglePopup,
   signOutFirebase,
 } from './firebase.ts';
@@ -205,9 +209,18 @@ export default function App() {
   }
 
   useEffect(() => {
+    void completeGoogleRedirectSignIn().catch((err) => {
+      setAuthError(formatFirebaseAuthError(err));
+    });
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setAuthUser(user);
       setIsAuthReady(true);
+      if (user && !user.emailVerified) {
+        setAuthError(
+          'Sua conta Google precisa estar com e-mail verificado para sincronizar com o banco de dados.'
+        );
+      }
       if (!user) {
         migratedUidRef.current = null;
       }
@@ -294,9 +307,7 @@ export default function App() {
       await signInWithGooglePopup();
     } catch (err: any) {
       if (err?.code !== 'auth/popup-closed-by-user') {
-        setAuthError(
-          'Não foi possível concluir o login com Google. Verifique se pop-ups estão permitidos.'
-        );
+        setAuthError(formatFirebaseAuthError(err));
       }
     } finally {
       setIsSigningIn(false);
@@ -1343,6 +1354,26 @@ export default function App() {
 
       {/* Main Content Area */}
       <main id="top" className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 pt-4 sm:pt-6">
+        {authError && (
+          <div
+            role="alert"
+            className="mb-4 p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800/80 text-xs sm:text-sm text-rose-900 dark:text-rose-200 flex items-start justify-between gap-3"
+          >
+            <div className="flex items-start gap-2.5 min-w-0">
+              <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+              <p className="leading-relaxed break-words">{authError}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAuthError(null)}
+              aria-label="Fechar aviso de login"
+              className="min-h-[36px] min-w-[36px] rounded-lg text-rose-500 hover:text-rose-800 dark:hover:text-rose-100 inline-flex items-center justify-center shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* TAB 1: DASHBOARD (Super Dica Combinada) */}
         {activeTab === 'analyzer' && (
           <div>

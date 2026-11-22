@@ -1,8 +1,10 @@
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
+  getRedirectResult,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
 } from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
@@ -11,6 +13,7 @@ import firebaseConfig from '../firebase-applet-config.json';
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+export const FIREBASE_PROJECT_ID = firebaseConfig.projectId;
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
@@ -81,8 +84,68 @@ async function testConnection() {
 
 void testConnection();
 
+export function formatFirebaseAuthError(error: unknown): string {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code || '')
+      : '';
+  const host =
+    typeof window !== 'undefined' && window.location?.hostname
+      ? window.location.hostname
+      : 'seu-dominio.vercel.app';
+
+  switch (code) {
+    case 'auth/unauthorized-domain':
+      return `O domínio "${host}" ainda não está autorizado no Firebase Authentication. No Firebase Console (projeto ${FIREBASE_PROJECT_ID}), acesse Authentication → Settings → Domínios autorizados e adicione "${host}".`;
+    case 'auth/operation-not-allowed':
+      return `O login com Google não está ativado no Firebase Console (projeto ${FIREBASE_PROJECT_ID}). Acesse Authentication → Sign-in method e ative o provedor Google.`;
+    case 'auth/popup-blocked':
+      return 'O navegador bloqueou a janela de login do Google. Permita pop-ups para este site e tente novamente.';
+    case 'auth/cancelled-popup-request':
+      return 'Uma janela de login já está em andamento. Aguarde ou tente novamente.';
+    case 'auth/network-request-failed':
+      return 'Falha de conexão ao autenticar com o Google. Verifique sua internet e tente novamente.';
+    case 'auth/internal-error':
+      return `Erro interno ao autenticar no domínio "${host}". Verifique se "${host}" está em Domínios autorizados no Firebase Console (${FIREBASE_PROJECT_ID}) e se cookies/pop-ups de terceiros não estão bloqueados.`;
+    default: {
+      const msg =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'string'
+            ? error
+            : 'Erro desconhecido';
+      return code
+        ? `Não foi possível concluir o login com Google (${code}).`
+        : `Não foi possível concluir o login com Google: ${msg}`;
+    }
+  }
+}
+
 export async function signInWithGooglePopup() {
-  return signInWithPopup(auth, googleProvider);
+  try {
+    return await signInWithPopup(auth, googleProvider);
+  } catch (err: any) {
+    const code = String(err?.code || '');
+    const isTopLevelWindow =
+      typeof window !== 'undefined' && window.self === window.top;
+    if (
+      isTopLevelWindow &&
+      (code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment')
+    ) {
+      await signInWithRedirect(auth, googleProvider);
+      return null;
+    }
+    throw err;
+  }
+}
+
+export async function completeGoogleRedirectSignIn() {
+  try {
+    return await getRedirectResult(auth);
+  } catch (err) {
+    throw err;
+  }
 }
 
 export async function signOutFirebase() {

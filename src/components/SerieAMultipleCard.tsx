@@ -6,6 +6,7 @@ import {
   Calendar,
   CalendarPlus,
   Check,
+  Clock,
   Copy,
   Download,
   Flame,
@@ -543,6 +544,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
               className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 p-3.5 space-y-2.5 animate-pulse"
             >
               <div className="h-3 w-28 rounded bg-slate-200 dark:bg-slate-700" />
+              <div className="h-7 w-full rounded-lg bg-amber-100/70 dark:bg-amber-950/40" />
               <div className="h-4 w-44 rounded bg-slate-200 dark:bg-slate-700" />
               <div className="h-5 w-36 rounded bg-emerald-200/60 dark:bg-emerald-900/40" />
               <div className="h-3 w-full rounded bg-slate-200 dark:bg-slate-700" />
@@ -621,11 +623,21 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                       />
                       <span className="truncate">
                         Jogo {idx + 1}
-                        {leg.competition ? ` · ${leg.competition}` : ''} · {leg.dateLabel}
+                        {leg.competition ? ` · ${leg.competition}` : ''}
                       </span>
                     </span>
                     <span className="font-mono tabular-nums shrink-0">
                       xG {leg.expectedGoalsHome.toFixed(1)}–{leg.expectedGoalsAway.toFixed(1)}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 rounded-lg border border-amber-200/90 dark:border-amber-800/70 bg-amber-50/90 dark:bg-amber-950/50 px-2.5 py-1.5 text-amber-950 dark:text-amber-100">
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300 shrink-0">
+                      <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <span>Horário</span>
+                    </span>
+                    <span className="font-mono tabular-nums text-xs font-bold tracking-tight whitespace-nowrap">
+                      {leg.dateLabel || 'A definir'}
                     </span>
                   </div>
 
