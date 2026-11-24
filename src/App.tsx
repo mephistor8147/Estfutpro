@@ -4,6 +4,7 @@ import {
   AlertCircle,
   ArrowLeftRight,
   BarChart2,
+  Bell,
   BookmarkCheck,
   CalendarDays,
   Compass,
@@ -12,11 +13,14 @@ import {
   Loader2,
   LogIn,
   LogOut,
+  Menu,
   Moon,
   RefreshCw,
   Search,
+  ShieldCheck,
   SlidersHorizontal,
   Sun,
+  Ticket,
   X,
 } from 'lucide-react';
 import {
@@ -27,27 +31,41 @@ import {
   signOutFirebase,
 } from './firebase.ts';
 import {
+  checkUserIsAdmin,
   createUserAnalysis,
   createUserMultiple,
+  DEFAULT_APP_GLOBAL_CONFIG,
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  DEFAULT_SEARCH_PREFERENCES,
   deleteUserAnalysis,
   deleteUserMultiple,
   migrateLocalDataToFirestore,
   sanitizeDocId,
   saveUserPreferences,
+  subscribeAppGlobalConfig,
+  subscribeCurrentUserAccount,
   subscribeUserAnalyses,
   subscribeUserMultiples,
   subscribeUserPreferences,
   updateUserAnalysisScore,
   updateUserMultipleSlip,
+  upsertUserAccountRecord,
   upsertUserProfile,
 } from './lib/firestoreSync.ts';
+import { dispatchAppNotification } from './lib/notifications.ts';
 import { calculatePoissonModel } from './lib/poisson.ts';
 import { CompetitionFlag } from './components/CompetitionFlag.tsx';
+import { MiniPitch } from './components/MiniPitch.tsx';
 import { TeamCrest } from './components/TeamCrest.tsx';
 import { ProbabilityHero } from './components/ProbabilityHero.tsx';
 import { ModulesView } from './components/ModulesView.tsx';
 import { HistoryView } from './components/HistoryView.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
+import { AdminView } from './components/AdminView.tsx';
+import {
+  BettingMenuView,
+  type BetSlipSelection,
+} from './components/BettingMenuView.tsx';
 import {
   SuperCombinedTipCard,
   type SaveSuperCombinedPayload,
@@ -58,7 +76,11 @@ import {
 } from './components/SerieAMultipleCard.tsx';
 import type {
   AnalysisResponsePayload,
+  AppGlobalConfig,
   AppSettings,
+  DailyBetOddsMatch,
+  DailyBetsResponse,
+  InAppNotificationItem,
   LiveMatchScore,
   LiveScoreMatchResult,
   LiveScoreQueryItem,
@@ -71,9 +93,18 @@ import type {
   SerieAMultipleTip,
   SuggestedFixture,
   SuperCombinedTip,
+  UserAccountRecord,
 } from './types/football.ts';
 
-type AppTab = 'analyzer' | 'tips' | 'fixtures' | 'modules' | 'history' | 'settings';
+type AppTab =
+  | 'analyzer'
+  | 'betting'
+  | 'tips'
+  | 'fixtures'
+  | 'modules'
+  | 'history'
+  | 'settings'
+  | 'admin';
 type ThemeMode = 'light' | 'dark';
 
 const STORAGE_SETTINGS_KEY = 'campostats_settings_v1';
@@ -96,6 +127,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   },
   recentFormWeight: 0.35,
   homeAdvantageMultiplier: 1.12,
+  searchPreferences: DEFAULT_SEARCH_PREFERENCES,
+  notifications: DEFAULT_NOTIFICATION_PREFERENCES,
 };
 
 const QUICK_LEAGUES = [
@@ -109,6 +142,7 @@ const QUICK_LEAGUES = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('analyzer');
+  const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
 
   const [theme, setTheme] = useState<ThemeMode>(() => {
     try {
@@ -146,6 +180,17 @@ export default function App() {
           activeModules: {
             ...DEFAULT_SETTINGS.activeModules,
             ...parsed.activeModules,
+          },
+          searchPreferences: {
+            ...DEFAULT_SETTINGS.searchPreferences,
+            ...parsed.searchPreferences,
+            favoriteLeagues: Array.isArray(parsed.searchPreferences?.favoriteLeagues)
+              ? parsed.searchPreferences.favoriteLeagues
+              : [],
+          },
+          notifications: {
+            ...DEFAULT_SETTINGS.notifications,
+            ...parsed.notifications,
           },
         };
       }
@@ -190,6 +235,18 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [firestoreError, setFirestoreError] = useState<Error | null>(null);
 
+  const [globalConfig, setGlobalConfig] = useState<AppGlobalConfig>(
+    DEFAULT_APP_GLOBAL_CONFIG
+  );
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [userAccount, setUserAccount] = useState<UserAccountRecord | null>(null);
+  const [notificationsList, setNotificationsList] = useState<InAppNotificationItem[]>(
+    []
+  );
+  const [dailyBets, setDailyBets] = useState<DailyBetsResponse | null>(null);
+  const [isLoadingDailyBets, setIsLoadingDailyBets] = useState(false);
+  const [dailyBetsError, setDailyBetsError] = useState<string | null>(null);
+
   const historyRef = useRef(history);
   historyRef.current = history;
   const multipleHistoryRef = useRef(multipleHistory);
@@ -203,10 +260,59 @@ export default function App() {
   const migratedUidRef = useRef<string | null>(null);
   const skipCloudPrefWriteRef = useRef(false);
   const modulesDetailsRef = useRef<HTMLDivElement | null>(null);
+  const hasStoredSettingsRef = useRef<boolean>(
+    (() => {
+      try {
+        return Boolean(localStorage.getItem(STORAGE_SETTINGS_KEY));
+      } catch {
+        return false;
+      }
+    })()
+  );
+
+  const pushNotification = useCallback(
+    (
+      payload: {
+        title: string;
+        message: string;
+        category: InAppNotificationItem['category'];
+      },
+      forceTest = false
+    ) => {
+      const item = dispatchAppNotification(
+        settingsRef.current.notifications,
+        payload,
+        forceTest
+      );
+      if (!item) return;
+      setNotificationsList((prev) => [item, ...prev].slice(0, 3));
+      window.setTimeout(() => {
+        setNotificationsList((prev) => prev.filter((n) => n.id !== item.id));
+      }, 6500);
+    },
+    []
+  );
 
   if (firestoreError) {
     throw firestoreError;
   }
+
+  useEffect(() => {
+    const unsubGlobal = subscribeAppGlobalConfig((cfg) => {
+      setGlobalConfig(cfg);
+      if (!hasStoredSettingsRef.current && !authUserRef.current) {
+        setSettings((prev) => ({
+          ...prev,
+          championshipScope: cfg.defaultChampionshipScope,
+          searchPreferences: {
+            ...prev.searchPreferences,
+            window: cfg.defaultSearchWindow,
+          },
+        }));
+      }
+    });
+    return () => unsubGlobal();
+  }, []);
 
   useEffect(() => {
     void completeGoogleRedirectSignIn().catch((err) => {
@@ -223,6 +329,10 @@ export default function App() {
       }
       if (!user) {
         migratedUidRef.current = null;
+        setIsAdmin(false);
+        setUserAccount(null);
+      } else {
+        void checkUserIsAdmin(user).then((flag) => setIsAdmin(flag));
       }
     });
     return () => unsubscribe();
@@ -239,6 +349,10 @@ export default function App() {
     const initCloudSync = async () => {
       try {
         await upsertUserProfile(authUser);
+        await upsertUserAccountRecord(authUser, {
+          analysesCount: historyRef.current.length,
+          multiplesCount: multipleHistoryRef.current.length,
+        });
         if (migratedUidRef.current !== uid) {
           migratedUidRef.current = uid;
           await migrateLocalDataToFirestore(uid, {
@@ -258,6 +372,13 @@ export default function App() {
     };
 
     void initCloudSync();
+
+    const unsubAccount = subscribeCurrentUserAccount(uid, (acc) => {
+      setUserAccount(acc);
+      if (acc?.role === 'admin') {
+        setIsAdmin(true);
+      }
+    });
 
     const unsubPrefs = subscribeUserPreferences(
       uid,
@@ -294,11 +415,23 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      unsubAccount();
       unsubPrefs();
       unsubAnalyses();
       unsubMultiples();
     };
   }, [isAuthReady, authUser]);
+
+  useEffect(() => {
+    if (!isAuthReady || !authUser || !authUser.emailVerified) return;
+    const timer = window.setTimeout(() => {
+      void upsertUserAccountRecord(authUser, {
+        analysesCount: history.length,
+        multiplesCount: multipleHistory.length,
+      }).catch(() => {});
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [isAuthReady, authUser, history.length, multipleHistory.length]);
 
   const handleSignInGoogle = useCallback(async () => {
     setIsSigningIn(true);
@@ -393,14 +526,22 @@ export default function App() {
   }, [multipleHistory]);
 
   const fetchFixtures = useCallback(
-    async (scope: AppSettings['championshipScope'], forceRefresh = false) => {
+    async (
+      scope: AppSettings['championshipScope'],
+      forceRefresh = false,
+      searchPrefs = settingsRef.current.searchPreferences
+    ) => {
       setIsLoadingFixtures(true);
       setFixturesError(null);
       try {
         const res = await fetch('/api/fixtures', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scope, forceRefresh }),
+          body: JSON.stringify({
+            scope,
+            forceRefresh,
+            searchPreferences: searchPrefs,
+          }),
         });
         const json = await res.json();
         if (!res.ok) {
@@ -418,9 +559,62 @@ export default function App() {
 
   useEffect(() => {
     if (activeTab === 'fixtures') {
-      fetchFixtures(settings.championshipScope, false);
+      fetchFixtures(
+        settings.championshipScope,
+        false,
+        settings.searchPreferences
+      );
     }
-  }, [activeTab, settings.championshipScope, fetchFixtures]);
+  }, [
+    activeTab,
+    settings.championshipScope,
+    settings.searchPreferences,
+    fetchFixtures,
+  ]);
+
+  const fetchDailyBets = useCallback(
+    async (forceRefresh = false) => {
+      setIsLoadingDailyBets(true);
+      setDailyBetsError(null);
+      try {
+        const res = await fetch('/api/bets-today', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            forceRefresh,
+            oddsMarginPct: globalConfig.oddsMarginPct,
+            includeLive: settingsRef.current.searchPreferences.includeLiveMatches,
+            favoriteLeagues: settingsRef.current.searchPreferences.favoriteLeagues,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          throw new Error(
+            json.error || 'Não foi possível carregar os jogos de hoje com odds.'
+          );
+        }
+        setDailyBets(json as DailyBetsResponse);
+      } catch (err: any) {
+        setDailyBetsError(
+          err?.message || 'Erro ao buscar lista de jogos do dia com odds.'
+        );
+      } finally {
+        setIsLoadingDailyBets(false);
+      }
+    },
+    [globalConfig.oddsMarginPct]
+  );
+
+  useEffect(() => {
+    if (activeTab === 'betting') {
+      fetchDailyBets(false);
+    }
+  }, [
+    activeTab,
+    fetchDailyBets,
+    settings.searchPreferences.includeLiveMatches,
+    settings.searchPreferences.favoriteLeagues,
+  ]);
 
   const fetchMultipleTip = useCallback(
     async (
@@ -1003,6 +1197,12 @@ export default function App() {
         }
 
         const updatedMultiplesToSync: MultipleHistoryItem[] = [];
+        const notifiedMessages: {
+          title: string;
+          message: string;
+          category: InAppNotificationItem['category'];
+        }[] = [];
+
         setMultipleHistory((prev) =>
           prev.map((item) => {
             let changed = false;
@@ -1013,6 +1213,20 @@ export default function App() {
               const hasNumericScore =
                 typeof match.homeGoals === 'number' &&
                 typeof match.awayGoals === 'number';
+
+              if (
+                hasNumericScore &&
+                leg.liveScore &&
+                (match.homeGoals! > leg.liveScore.homeGoals ||
+                  match.awayGoals! > leg.liveScore.awayGoals) &&
+                settingsRef.current.notifications.notifyLiveGoals
+              ) {
+                notifiedMessages.push({
+                  title: 'Gol ao vivo',
+                  message: `${leg.homeTeam} ${match.homeGoals} × ${match.awayGoals} ${leg.awayTeam}`,
+                  category: 'goal',
+                });
+              }
 
               const nextLiveScore: LiveMatchScore = {
                 homeGoals: hasNumericScore ? match.homeGoals! : 0,
@@ -1055,6 +1269,17 @@ export default function App() {
 
             if (!changed) return item;
             const nextStatus = deriveTipStatus(nextLegs);
+            if (
+              item.status === 'pending' &&
+              (nextStatus === 'won' || nextStatus === 'lost') &&
+              settingsRef.current.notifications.notifyBetResolved
+            ) {
+              notifiedMessages.push({
+                title: nextStatus === 'won' ? 'Bilhete ganho!' : 'Bilhete encerrado',
+                message: `${item.competition} (${nextStatus === 'won' ? 'Ganha' : 'Perdida'})`,
+                category: 'bet',
+              });
+            }
             const updatedItem: MultipleHistoryItem = {
               ...item,
               legs: nextLegs,
@@ -1078,6 +1303,20 @@ export default function App() {
             const hasNumericScore =
               typeof match.homeGoals === 'number' &&
               typeof match.awayGoals === 'number';
+
+            if (
+              hasNumericScore &&
+              item.liveScore &&
+              (match.homeGoals! > item.liveScore.homeGoals ||
+                match.awayGoals! > item.liveScore.awayGoals) &&
+              settingsRef.current.notifications.notifyLiveGoals
+            ) {
+              notifiedMessages.push({
+                title: 'Gol ao vivo',
+                message: `${item.homeTeam.name} ${match.homeGoals} × ${match.awayGoals} ${item.awayTeam.name}`,
+                category: 'goal',
+              });
+            }
 
             const nextLiveScore: LiveMatchScore = {
               homeGoals: hasNumericScore ? match.homeGoals! : 0,
@@ -1109,6 +1348,10 @@ export default function App() {
             return updatedAnalysis;
           })
         );
+
+        for (const msg of notifiedMessages.slice(0, 2)) {
+          pushNotification(msg);
+        }
 
         const user = authUserRef.current;
         if (user && user.emailVerified) {
@@ -1253,6 +1496,89 @@ export default function App() {
     [refreshHistoryLiveScores]
   );
 
+  const handleSaveDailyBetSlip = useCallback(
+    (payload: {
+      selections: BetSlipSelection[];
+      stake: number;
+      totalOdd: number;
+      potentialReturn: number;
+      combinedProbabilityPct: number;
+    }) => {
+      if (payload.selections.length === 0) return;
+      const sig = `bets:${payload.selections
+        .map((s) => `${s.match.eventId}:${s.marketKey}`)
+        .join('|')}:${Date.now()}`;
+      const compTitle =
+        payload.selections.length === 1
+          ? `Aposta simples · ${payload.selections[0].match.competition}`
+          : `Múltipla de Hoje (${payload.selections.length} jogos)`;
+
+      const item: MultipleHistoryItem = {
+        id: sanitizeDocId(`${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+        tipSignature: sig,
+        createdAt: new Date().toISOString(),
+        competition: compTitle,
+        leagueSlug:
+          payload.selections.length === 1
+            ? payload.selections[0].match.leagueSlug
+            : 'today',
+        dayFilter: 'today',
+        legs: payload.selections.map((s) => ({
+          eventId: s.match.eventId,
+          leagueSlug: s.match.leagueSlug,
+          homeTeam: s.match.homeTeam,
+          awayTeam: s.match.awayTeam,
+          homeShortCode: s.match.homeShortCode,
+          awayShortCode: s.match.awayShortCode,
+          homeLogoUrl: s.match.homeLogoUrl,
+          awayLogoUrl: s.match.awayLogoUrl,
+          homeColor: s.match.homeColor,
+          awayColor: s.match.awayColor,
+          competition: s.match.competition,
+          dateLabel: s.match.dateLabel,
+          marketLabel: s.marketLabel,
+          probabilityPct: s.probabilityPct,
+          expectedGoalsHome: s.match.expectedGoalsHome,
+          expectedGoalsAway: s.match.expectedGoalsAway,
+          rationale: `Odd calibrada @${s.odd.toFixed(2)} no menu Apostas`,
+          odd: s.odd,
+          status: 'pending',
+        })),
+        combinedProbabilityPct: payload.combinedProbabilityPct,
+        totalOdd: payload.totalOdd,
+        stake: payload.stake,
+        potentialReturn: payload.potentialReturn,
+        status: 'pending',
+        source: 'tip',
+      };
+
+      setMultipleHistory((prev) => [item, ...prev]);
+      const user = authUserRef.current;
+      if (user && user.emailVerified) {
+        void createUserMultiple(user.uid, item).catch((err) =>
+          setFirestoreError(err instanceof Error ? err : new Error(String(err)))
+        );
+      }
+      pushNotification({
+        title: 'Bilhete salvo no Histórico',
+        message: `${compTitle} · Odd @${payload.totalOdd.toFixed(2)}`,
+        category: 'bet',
+      });
+    },
+    [pushNotification]
+  );
+
+  const handleAnalyzeDailyBetMatch = useCallback(
+    (match: DailyBetOddsMatch) => {
+      setHomeTeamInput(match.homeTeam);
+      setAwayTeamInput(match.awayTeam);
+      setCompetitionInput(match.competition);
+      setActiveTab('modules');
+      runAnalysis(match.homeTeam, match.awayTeam, match.competition);
+    },
+    [runAnalysis]
+  );
+
   const navItems: {
     id: AppTab;
     label: string;
@@ -1260,39 +1586,98 @@ export default function App() {
     icon: React.ComponentType<{ className?: string }>;
   }[] = [
     { id: 'analyzer', label: 'Dashboard', icon: Compass },
+    ...(globalConfig.bettingMenuEnabled || isAdmin
+      ? [{ id: 'betting' as AppTab, label: 'Apostas', icon: Ticket }]
+      : []),
     { id: 'tips', label: 'Dicas quentes', mobileLabel: 'Dicas', icon: Flame },
     { id: 'fixtures', label: 'Jogos', icon: CalendarDays },
     { id: 'modules', label: 'Modelos', icon: Layers },
     { id: 'history', label: 'Histórico', icon: BookmarkCheck },
     { id: 'settings', label: 'Ajustes', icon: SlidersHorizontal },
+    { id: 'admin', label: 'Admin', icon: ShieldCheck },
   ];
+
+  const mobilePrimaryTabIds: AppTab[] = [
+    'analyzer',
+    ...(globalConfig.bettingMenuEnabled || isAdmin ? (['betting'] as AppTab[]) : []),
+    'tips',
+    'fixtures',
+    'history',
+  ];
+  const mobilePrimaryItems = navItems.filter((i) =>
+    mobilePrimaryTabIds.includes(i.id)
+  );
+  const mobileSecondaryItems = navItems.filter(
+    (i) => !mobilePrimaryTabIds.includes(i.id)
+  );
+  const isSecondaryActive = mobileSecondaryItems.some((i) => i.id === activeTab);
+
+  const selectTab = (tab: AppTab) => {
+    setActiveTab(tab);
+    setIsMobileMoreOpen(false);
+  };
 
   return (
     <div className="min-h-screen overflow-x-clip bg-[#F6F7F9] dark:bg-slate-950 text-slate-900 dark:text-slate-100 pb-24 lg:pb-12 transition-colors">
+      {/* Toast Notifications Stack */}
+      {notificationsList.length > 0 && (
+        <div className="fixed top-16 left-3 right-3 sm:left-auto sm:right-4 sm:w-80 z-50 space-y-2 pointer-events-none">
+          {notificationsList.map((n) => (
+            <div
+              key={n.id}
+              className="pointer-events-auto rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-lg p-3 flex items-start gap-2.5"
+            >
+              <Bell className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                  {n.title}
+                </div>
+                <div className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug mt-0.5 break-words">
+                  {n.message}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setNotificationsList((prev) => prev.filter((item) => item.id !== n.id))
+                }
+                aria-label="Fechar notificação"
+                className="min-h-[32px] min-w-[32px] -mr-1 -mt-1 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Compact Sticky Header (Mobile 52px / Desktop 3-Zone Top Bar) */}
       <header className="sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800">
-        <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 h-13 lg:h-16 flex items-center justify-between gap-4 sm:gap-8">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-13 lg:h-16 flex items-center justify-between gap-2 sm:gap-4 lg:gap-6">
           <a
             href="#top"
             onClick={(e) => {
               e.preventDefault();
-              setActiveTab('analyzer');
+              selectTab('analyzer');
             }}
-            className="font-display text-xl lg:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap shrink-0"
+            className="font-display text-xl lg:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap shrink-0 truncate max-w-[155px] sm:max-w-[220px]"
           >
-            CampoStats
+            {globalConfig.appName || 'CampoStats'}
           </a>
 
           {/* Desktop Navigation (3-zone contract) */}
-          <nav className="hidden lg:flex items-center gap-6 text-sm font-medium text-slate-600 dark:text-slate-300">
+          <nav
+            aria-label="Navegação principal"
+            className="hidden lg:flex items-center gap-3.5 xl:gap-6 text-xs xl:text-sm font-medium text-slate-600 dark:text-slate-300 min-w-0 overflow-x-auto no-scrollbar"
+          >
             {navItems.map((item) => {
               const active = activeTab === item.id;
               return (
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => setActiveTab(item.id)}
-                  className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
+                  onClick={() => selectTab(item.id)}
+                  className={`py-1.5 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
                     active
                       ? 'text-slate-900 dark:text-white border-emerald-700 dark:border-emerald-400 font-semibold'
                       : 'border-transparent hover:text-slate-900 dark:hover:text-white'
@@ -1354,6 +1739,28 @@ export default function App() {
 
       {/* Main Content Area */}
       <main id="top" className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 pt-4 sm:pt-6">
+        {(globalConfig.maintenanceMode || globalConfig.announcementBanner.trim()) && (
+          <div
+            className={`mb-4 px-4 py-2.5 rounded-2xl border text-xs font-medium flex flex-wrap items-center justify-between gap-2 ${
+              globalConfig.maintenanceMode
+                ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200'
+                : 'bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/70 text-emerald-900 dark:text-emerald-200'
+            }`}
+          >
+            <span>
+              {globalConfig.maintenanceMode
+                ? 'Manutenção programada em andamento. Alguns recursos podem sofrer instabilidade temporária.'
+                : globalConfig.announcementBanner}
+            </span>
+          </div>
+        )}
+
+        {userAccount?.status === 'blocked' && (
+          <div className="mb-4 p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs text-rose-900 dark:text-rose-200">
+            Sua conta está temporariamente suspensa pelo administrador. Entre em contato caso considere um engano.
+          </div>
+        )}
+
         {authError && (
           <div
             role="alert"
@@ -1392,6 +1799,20 @@ export default function App() {
               onSaveToHistory={handleSaveSuperCombinedTip}
             />
           </div>
+        )}
+
+        {/* TAB 2: APOSTAS (Jogos do dia atual com odds) */}
+        {activeTab === 'betting' && (
+          <BettingMenuView
+            data={dailyBets}
+            loading={isLoadingDailyBets}
+            error={dailyBetsError}
+            oddsMarginPct={globalConfig.oddsMarginPct}
+            minTipProbabilityPct={globalConfig.minTipProbabilityPct}
+            onRefresh={() => fetchDailyBets(true)}
+            onAnalyzeMatch={handleAnalyzeDailyBetMatch}
+            onSaveBetSlip={handleSaveDailyBetSlip}
+          />
         )}
 
         {/* TAB 2: DICAS QUENTES (Menu exclusivo para múltiplas, ligas mundiais e jogos de amanhã) */}
@@ -1478,56 +1899,60 @@ export default function App() {
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                  {fixtures.map((fx, idx) => (
-                    <button
-                      key={`${fx.homeTeam}-${fx.awayTeam}-${idx}`}
-                      type="button"
-                      onClick={() => handleSelectFixture(fx)}
-                      className="w-full min-h-[72px] p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 hover:bg-slate-100/70 dark:hover:bg-slate-800/70 active:bg-slate-100 dark:active:bg-slate-800 flex items-center justify-between gap-3 text-left transition-colors"
-                    >
-                      <div className="min-w-0 flex-1 space-y-1.5">
-                        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 min-w-0">
-                          <CompetitionFlag
-                            leagueSlug={fx.leagueSlug}
-                            competition={fx.competition}
-                            size="sm"
-                          />
-                          <span className="truncate">
-                            {fx.competition} · {fx.dateLabel}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {fixtures.map((fx, idx) => {
+                    const isFixtureLive = fx.dateLabel
+                      .toLowerCase()
+                      .startsWith('ao vivo');
+                    return (
+                      <button
+                        key={`${fx.homeTeam}-${fx.awayTeam}-${idx}`}
+                        type="button"
+                        onClick={() => handleSelectFixture(fx)}
+                        className="w-full p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 hover:bg-slate-100/70 dark:hover:bg-slate-800/70 active:bg-slate-100 dark:active:bg-slate-800 flex flex-col gap-2.5 text-left transition-colors"
+                      >
+                        <div className="flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400 min-w-0">
+                          <span className="inline-flex items-center gap-1.5 min-w-0 truncate">
+                            <CompetitionFlag
+                              leagueSlug={fx.leagueSlug}
+                              competition={fx.competition}
+                              size="sm"
+                            />
+                            <span className="truncate">
+                              {fx.competition} · {fx.dateLabel}
+                            </span>
+                          </span>
+                          <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 shrink-0 whitespace-nowrap">
+                            Analisar
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <TeamCrest
-                            name={fx.homeTeam}
-                            shortCode={fx.homeShortCode || fx.homeTeam}
-                            primaryColor={fx.homeColor || '#0F766E'}
-                            secondaryColor="#FFFFFF"
-                            logoUrl={fx.homeLogoUrl}
-                            size="xs"
-                          />
-                          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
-                            {fx.homeTeam}
-                          </span>
+
+                        <MiniPitch
+                          variant="compact"
+                          homeTeam={{
+                            name: fx.homeTeam,
+                            shortCode: fx.homeShortCode || fx.homeTeam,
+                            primaryColor: fx.homeColor,
+                            logoUrl: fx.homeLogoUrl,
+                          }}
+                          awayTeam={{
+                            name: fx.awayTeam,
+                            shortCode: fx.awayShortCode || fx.awayTeam,
+                            primaryColor: fx.awayColor,
+                            logoUrl: fx.awayLogoUrl,
+                          }}
+                          isLive={isFixtureLive}
+                          centerLabel={isFixtureLive ? 'AO VIVO' : 'VS'}
+                        />
+
+                        <div className="flex items-center justify-between gap-2 min-w-0 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          <span className="truncate">{fx.homeTeam}</span>
                           <span className="text-xs text-slate-400 shrink-0">×</span>
-                          <TeamCrest
-                            name={fx.awayTeam}
-                            shortCode={fx.awayShortCode || fx.awayTeam}
-                            primaryColor={fx.awayColor || '#1D4ED8'}
-                            secondaryColor="#FFFFFF"
-                            logoUrl={fx.awayLogoUrl}
-                            size="xs"
-                          />
-                          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
-                            {fx.awayTeam}
-                          </span>
+                          <span className="truncate text-right">{fx.awayTeam}</span>
                         </div>
-                      </div>
-                      <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 shrink-0 whitespace-nowrap">
-                        Analisar
-                      </span>
-                    </button>
-                  ))}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </section>
@@ -1806,28 +2231,176 @@ export default function App() {
           />
         )}
 
-        {/* TAB 5: AJUSTES */}
+        {/* TAB 6: AJUSTES */}
         {activeTab === 'settings' && (
           <SettingsView
             settings={settings}
             theme={theme}
             authUser={authUser}
+            isAdmin={isAdmin}
+            userAccount={userAccount}
+            historyCount={history.length}
+            multipleHistory={multipleHistory}
             isSigningIn={isSigningIn}
             authError={authError}
             onSignInGoogle={handleSignInGoogle}
             onSignOut={handleSignOut}
             onChangeTheme={setTheme}
             onUpdateSettings={setSettings}
+            onTestNotification={() =>
+              pushNotification(
+                {
+                  title: 'Notificações ativas',
+                  message:
+                    'Você receberá alertas de gols ao vivo e bilhetes encerrados conforme seus ajustes.',
+                  category: 'system',
+                },
+                true
+              )
+            }
+            onOpenAdmin={() => setActiveTab('admin')}
+          />
+        )}
+
+        {/* TAB 7: ADMIN */}
+        {activeTab === 'admin' && (
+          <AdminView
+            authUser={authUser}
+            isAdmin={isAdmin}
+            isSigningIn={isSigningIn}
+            globalConfig={globalConfig}
+            onSignInGoogle={handleSignInGoogle}
           />
         )}
       </main>
 
-      {/* Mobile Fixed Bottom Navigation Bar (Natural Thumb Zone) */}
+      {/* Mobile "Mais" Drawer Sheet for Modelos / Ajustes / Admin */}
+      {isMobileMoreOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Mais menus do aplicativo"
+          className="md:hidden fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-xs flex items-end justify-center"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsMobileMoreOpen(false);
+          }}
+        >
+          <div className="w-full bg-white dark:bg-slate-900 rounded-t-3xl border-t border-slate-200 dark:border-slate-800 shadow-2xl px-4 pt-2.5 pb-[calc(1rem+env(safe-area-inset-bottom))] space-y-3">
+            <div className="w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700 mx-auto" />
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-display text-lg font-bold text-slate-900 dark:text-slate-100">
+                Mais recursos e ajustes
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsMobileMoreOpen(false)}
+                aria-label="Fechar menu"
+                className="min-h-[44px] min-w-[44px] rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center justify-center"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2">
+              {mobileSecondaryItems.map((item) => {
+                const Icon = item.icon;
+                const active = activeTab === item.id;
+                const subtitle =
+                  item.id === 'modules'
+                    ? 'Analisador estatístico, 5 módulos e matriz de Poisson'
+                    : item.id === 'settings'
+                      ? 'Painel do usuário, pesquisa de jogos e notificações'
+                      : 'Configurações globais e gerenciamento de usuários';
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => selectTab(item.id)}
+                    className={`w-full min-h-[56px] px-3.5 py-2.5 rounded-2xl border text-left flex items-center gap-3 transition-colors ${
+                      active
+                        ? 'bg-emerald-50/90 dark:bg-emerald-950/50 border-emerald-600 dark:border-emerald-500 text-emerald-950 dark:text-emerald-100'
+                        : 'bg-slate-50/80 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        active
+                          ? 'bg-emerald-700 text-white'
+                          : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                      }`}
+                    >
+                      <Icon className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-bold truncate">{item.label}</div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                        {subtitle}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile & Tablet Fixed Bottom Navigation Bar (Natural Thumb Zone) */}
       <nav
         aria-label="Navegação principal móvel"
         className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800 pb-safe"
       >
-        <div className="grid grid-cols-6 items-center min-h-[56px]">
+        {/* Phones (< md): Fits all primary destinations + Mais sheet with zero horizontal cutoff */}
+        <div
+          className={`md:hidden grid items-center min-h-[56px] px-1 ${
+            mobilePrimaryItems.length === 5 ? 'grid-cols-6' : 'grid-cols-5'
+          }`}
+        >
+          {mobilePrimaryItems.map((item) => {
+            const Icon = item.icon;
+            const active = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => selectTab(item.id)}
+                className={`min-h-[52px] px-1 py-1.5 flex flex-col items-center justify-center transition-colors ${
+                  active
+                    ? 'text-emerald-700 dark:text-emerald-400'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+                }`}
+              >
+                <Icon className={`w-5 h-5 shrink-0 ${active ? 'stroke-[2.25]' : 'stroke-[1.75]'}`} />
+                <span className="text-[10px] font-medium tracking-tight mt-0.5 whitespace-nowrap truncate max-w-full">
+                  {item.mobileLabel ?? item.label}
+                </span>
+              </button>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={() => setIsMobileMoreOpen(true)}
+            aria-expanded={isMobileMoreOpen}
+            className={`min-h-[52px] px-1 py-1.5 flex flex-col items-center justify-center transition-colors ${
+              isSecondaryActive || isMobileMoreOpen
+                ? 'text-emerald-700 dark:text-emerald-400'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+            }`}
+          >
+            <Menu
+              className={`w-5 h-5 shrink-0 ${
+                isSecondaryActive || isMobileMoreOpen ? 'stroke-[2.25]' : 'stroke-[1.75]'
+              }`}
+            />
+            <span className="text-[10px] font-medium tracking-tight mt-0.5 whitespace-nowrap">
+              Mais
+            </span>
+          </button>
+        </div>
+
+        {/* Tablets (md to lg-1): All tabs comfortably distributed in one row */}
+        <div className="hidden md:grid grid-flow-col auto-cols-fr items-center min-h-[58px] px-2 max-w-4xl mx-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = activeTab === item.id;
@@ -1835,15 +2408,15 @@ export default function App() {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setActiveTab(item.id)}
-                className={`min-h-[52px] px-0.5 py-1.5 flex flex-col items-center justify-center transition-colors ${
+                onClick={() => selectTab(item.id)}
+                className={`min-h-[52px] px-1.5 py-1.5 flex flex-col items-center justify-center transition-colors ${
                   active
                     ? 'text-emerald-700 dark:text-emerald-400'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
                 <Icon className={`w-5 h-5 shrink-0 ${active ? 'stroke-[2.25]' : 'stroke-[1.75]'}`} />
-                <span className="text-[9.5px] min-[375px]:text-[10px] font-medium tracking-tight mt-0.5 whitespace-nowrap">
+                <span className="text-[11px] font-medium tracking-tight mt-0.5 whitespace-nowrap truncate max-w-full">
                   {item.mobileLabel ?? item.label}
                 </span>
               </button>

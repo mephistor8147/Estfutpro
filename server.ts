@@ -2,10 +2,15 @@ import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import type { ChampionshipScope, MultipleDayFilter } from './src/types/football.js';
+import type {
+  ChampionshipScope,
+  MultipleDayFilter,
+  SearchPreferences,
+} from './src/types/football.js';
 import {
   analyzeMatchService,
   checkMultipleResultsService,
+  getDailyBettingMatchesService,
   getFixturesService,
   getLiveScoresService,
   getSerieAMultipleService,
@@ -40,6 +45,7 @@ async function startServer() {
       const result = await getFixturesService({
         scope: (req.body?.scope as ChampionshipScope) || 'brasil',
         forceRefresh: Boolean(req.body?.forceRefresh),
+        searchPreferences: req.body?.searchPreferences as Partial<SearchPreferences> | undefined,
       });
       res.json(result);
     } catch (error: any) {
@@ -49,6 +55,41 @@ async function startServer() {
       );
       if (status !== 429) {
         console.error('Error fetching fixtures:', error?.message || error);
+      }
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.all('/api/bets-today', async (req, res) => {
+    try {
+      const forceRefresh =
+        Boolean(req.body?.forceRefresh) || req.query?.refresh === '1';
+      const oddsMarginRaw = req.body?.oddsMarginPct ?? req.query?.oddsMarginPct;
+      const oddsMarginPct =
+        oddsMarginRaw !== undefined ? Number(oddsMarginRaw) : 5;
+      const includeLive =
+        req.body?.includeLive !== undefined
+          ? Boolean(req.body.includeLive)
+          : req.query?.includeLive !== '0';
+      const favoriteLeagues = Array.isArray(req.body?.favoriteLeagues)
+        ? req.body.favoriteLeagues
+        : [];
+
+      const result = await getDailyBettingMatchesService({
+        forceRefresh,
+        oddsMarginPct: Number.isFinite(oddsMarginPct) ? oddsMarginPct : 5,
+        includeLive,
+        favoriteLeagues,
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(result);
+    } catch (error: any) {
+      const { status, message } = resolveApiError(
+        error,
+        'Não foi possível carregar os jogos de hoje com odds no momento.'
+      );
+      if (status !== 429) {
+        console.error('Error fetching daily betting matches:', error?.message || error);
       }
       res.status(status).json({ error: message });
     }

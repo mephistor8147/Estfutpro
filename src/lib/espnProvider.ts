@@ -1,6 +1,8 @@
 import type {
   AnalysisResponsePayload,
   ChampionshipScope,
+  DailyBetOddsMatch,
+  DailyBetsResponse,
   GroundingSource,
   HeadToHeadMatch,
   LiveScoreMatchResult,
@@ -12,6 +14,7 @@ import type {
   MultipleLegStatus,
   ParsedBetSlipLeg,
   RecentMatchItem,
+  SearchPreferences,
   SerieAMultipleLeg,
   SerieAMultipleTip,
   SuggestedFixture,
@@ -640,9 +643,10 @@ function buildStandingsFromSchedule(
 }
 
 export async function fetchEspnLiveFixtures(
-  scope: ChampionshipScope
+  scope: ChampionshipScope,
+  searchPrefs?: Partial<SearchPreferences>
 ): Promise<SuggestedFixture[]> {
-  const leagues =
+  const baseLeagues =
     scope === 'brasil'
       ? [
           'bra.1',
@@ -681,6 +685,14 @@ export async function fetchEspnLiveFixtures(
             'uefa.nations',
             'conmebol.libertadores',
           ];
+
+  const favSlugs = Array.isArray(searchPrefs?.favoriteLeagues)
+    ? searchPrefs.favoriteLeagues
+        .map((s) => String(s || '').trim())
+        .filter((s) => Boolean(s) && s !== 'today' && s !== 'tomorrow' && s !== 'world')
+        .slice(0, 12)
+    : [];
+  const leagues = Array.from(new Set([...favSlugs, ...baseLeagues])).slice(0, 22);
 
   const initialResults = await Promise.all(
     leagues.map(async (slug) => {
@@ -722,8 +734,14 @@ export async function fetchEspnLiveFixtures(
   const extraResults = futureDateFetches.length > 0 ? await Promise.all(futureDateFetches) : [];
   const allBatches = [...initialResults, ...extraResults];
 
+  const includeLive = searchPrefs?.includeLiveMatches !== false;
+  const searchWindow = searchPrefs?.window || 'week';
+  const sortBy = searchPrefs?.sortBy || 'time';
+  const favSet = new Set(favSlugs);
+  const todayBrtIso = BRT_DAY_FORMATTER.format(new Date());
+
   const seenEventIds = new Set<string>();
-  const collected: (SuggestedFixture & { isLive: boolean; timestamp: number })[] = [];
+  const collected: (SuggestedFixture & { isLive: boolean; timestamp: number; isFav: boolean })[] = [];
   const now = Date.now();
 
   for (const { slug, data } of allBatches) {
@@ -744,12 +762,21 @@ export async function fetchEspnLiveFixtures(
       // Strictly keep ONLY current (in progress) or future (pre) matches
       if (completed || state === 'post') continue;
 
+      const isLive = state === 'in';
+      if (isLive && !includeLive) continue;
+
       const evDate = ev.date ? new Date(ev.date) : null;
       const timestamp = evDate && !Number.isNaN(evDate.getTime()) ? evDate.getTime() : now;
-      const isLive = state === 'in';
 
       // Exclude stale unstarted games more than 3 hours in the past
       if (!isLive && timestamp < now - 3 * 60 * 60 * 1000) continue;
+
+      if (!isLive && searchWindow === 'today') {
+        const evBrtDay = evDate ? BRT_DAY_FORMATTER.format(evDate) : '';
+        if (evBrtDay !== todayBrtIso) continue;
+      } else if (!isLive && searchWindow === '48h') {
+        if (timestamp > now + 48 * 60 * 60 * 1000) continue;
+      }
 
       const competitors = comp?.competitors || [];
       const home = competitors.find((c: any) => c.homeAway === 'home');
@@ -815,16 +842,24 @@ export async function fetchEspnLiveFixtures(
         dateLabel,
         isLive,
         timestamp,
+        isFav: favSet.has(slug),
       });
     }
   }
 
   collected.sort((a, b) => {
+    if (a.isFav !== b.isFav) return a.isFav ? -1 : 1;
+    if (sortBy === 'league') {
+      const compDiff = a.competition.localeCompare(b.competition, 'pt-BR');
+      if (compDiff !== 0) return compDiff;
+    }
     if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;
     return a.timestamp - b.timestamp;
   });
 
-  return collected.slice(0, 10).map(({ isLive: _isLive, timestamp: _ts, ...rest }) => rest);
+  return collected
+    .slice(0, 14)
+    .map(({ isLive: _isLive, timestamp: _ts, isFav: _isFav, ...rest }) => rest);
 }
 
 export async function analyzeMatchViaEspn(
@@ -4364,5 +4399,502 @@ export async function enrichParsedBetLegsViaEspn(
       leagueSlug: resolvedSlug,
     };
   });
+}
+
+function moneylineToDecimal(ml: unknown): number | null {
+  const num = typeof ml === 'number' ? ml : Number(ml);
+  if (!Number.isFinite(num) || num === 0) return null;
+  if (num >= 100) {
+    return Number((1 + num / 100).toFixed(2));
+  }
+  if (num <= -100) {
+    return Number((1 + 100 / Math.abs(num)).toFixed(2));
+  }
+  return null;
+}
+
+function calibrateOddFromProb(probPct: number, marginPct: number): number {
+  const safeProb = Math.max(4, Math.min(93, probPct)) / 100;
+  const marginFactor = 1 + Math.max(0, Math.min(20, marginPct)) / 100;
+  const raw = 1 / (safeProb * marginFactor);
+  return Number(Math.max(1.04, Math.min(18.0, raw)).toFixed(2));
+}
+
+export async function fetchTodayBettingMatchesViaEspn(options?: {
+  oddsMarginPct?: number;
+  includeLive?: boolean;
+  favoriteLeagues?: string[];
+}): Promise<DailyBetsResponse> {
+  const oddsMarginPct = Math.max(0, Math.min(20, Number(options?.oddsMarginPct ?? 5)));
+  const includeLive = options?.includeLive !== false;
+  const favSlugs = Array.isArray(options?.favoriteLeagues)
+    ? options.favoriteLeagues.map((s) => String(s || '').trim()).filter(Boolean)
+    : [];
+  const favSet = new Set(favSlugs);
+
+  const nowDate = new Date();
+  const now = nowDate.getTime();
+  const todayBrtIso = BRT_DAY_FORMATTER.format(nowDate);
+  const tomorrowBrtIso = BRT_DAY_FORMATTER.format(new Date(now + 24 * 60 * 60 * 1000));
+  const todayYmd = todayBrtIso.replace(/-/g, '');
+  const tomorrowYmd = tomorrowBrtIso.replace(/-/g, '');
+
+  const leagueBoardsToScan = Array.from(
+    new Set([...favSlugs, ...TODAY_ALL_LEAGUES.slice(0, 22)])
+  ).slice(0, 26);
+
+  const [globalTodayBoard, globalTomorrowBoard, leagueBoards] = await Promise.all([
+    fetchJson<any>(
+      `https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates=${todayYmd}`,
+      7000
+    ),
+    fetchJson<any>(
+      `https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates=${tomorrowYmd}`,
+      7000
+    ),
+    Promise.all(
+      leagueBoardsToScan.map(async (slug) => {
+        const json = await fetchJson<any>(
+          `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${todayYmd}`,
+          5500
+        );
+        return { slug, json };
+      })
+    ),
+  ]);
+
+  const rawGlobalEvents: any[] = [];
+  for (const board of [globalTodayBoard, globalTomorrowBoard]) {
+    for (const ev of board?.events || []) {
+      rawGlobalEvents.push(ev);
+    }
+  }
+  await resolveLeagueMetaForGlobalEvents(rawGlobalEvents);
+
+  interface TodayRawCandidate {
+    eventId: string;
+    leagueSlug: string;
+    competition: string;
+    tier: 1 | 2 | 3;
+    isFav: boolean;
+    timestamp: number;
+    kickoffIso: string;
+    dateLabel: string;
+    state: MatchLiveState;
+    clock?: string;
+    statusDetail: string;
+    homeId: string;
+    homeName: string;
+    homeAbbr: string;
+    homeColor: string;
+    homeLogoUrl?: string;
+    awayId: string;
+    awayName: string;
+    awayAbbr: string;
+    awayColor: string;
+    awayLogoUrl?: string;
+    homeScore?: number;
+    awayScore?: number;
+    espnOdds?: {
+      home?: number | null;
+      draw?: number | null;
+      away?: number | null;
+    };
+  }
+
+  const candidateMap = new Map<string, TodayRawCandidate>();
+
+  const registerEvent = (ev: any, forcedSlug?: string) => {
+    const eventId = String(ev?.id || '');
+    if (!eventId) return;
+
+    const comp = ev?.competitions?.[0];
+    const statusType = comp?.status?.type;
+    const stateRaw = statusType?.state;
+    const completed = Boolean(statusType?.completed);
+    if (completed || stateRaw === 'post') return;
+
+    const state: MatchLiveState = stateRaw === 'in' ? 'in' : 'pre';
+    if (state === 'in' && !includeLive) return;
+
+    const evDate = ev?.date ? new Date(ev.date) : null;
+    const timestamp = evDate && !Number.isNaN(evDate.getTime()) ? evDate.getTime() : 0;
+    if (!timestamp) return;
+    if (state === 'pre' && timestamp < now - 20 * 60 * 1000) return;
+
+    const evBrtDay = evDate ? BRT_DAY_FORMATTER.format(evDate) : '';
+    if (evBrtDay !== todayBrtIso && state !== 'in') return;
+
+    const lid = parseLeagueIdFromUid(ev?.uid);
+    const meta = lid ? leagueIdMetaCache.get(lid) : undefined;
+    const slug = forcedSlug || meta?.slug || '';
+    if (!slug || isExcludedAmateurLeague(slug)) return;
+
+    const competitors = comp?.competitors || [];
+    const home = competitors.find((c: any) => c.homeAway === 'home');
+    const away = competitors.find((c: any) => c.homeAway === 'away');
+    if (!home?.team?.id || !away?.team?.id) return;
+
+    const homeName = home.team.displayName || home.team.shortDisplayName || '';
+    const awayName = away.team.displayName || away.team.shortDisplayName || '';
+    if (!homeName || !awayName || /\btbd\b/i.test(homeName) || /\btbd\b/i.test(awayName)) {
+      return;
+    }
+
+    const oddsBlock = Array.isArray(comp?.odds) ? comp.odds[0] : null;
+    const espnHomeOdd = moneylineToDecimal(oddsBlock?.homeTeamOdds?.moneyLine);
+    const espnAwayOdd = moneylineToDecimal(oddsBlock?.awayTeamOdds?.moneyLine);
+    const espnDrawOdd = moneylineToDecimal(oddsBlock?.drawOdds?.moneyLine);
+
+    const timeStr = evDate
+      ? new Intl.DateTimeFormat('pt-BR', {
+          timeZone: 'America/Sao_Paulo',
+          hour: '2-digit',
+          minute: '2-digit',
+        }).format(evDate)
+      : '';
+    const clock = statusType?.shortDetail || undefined;
+    const dateLabel =
+      state === 'in' ? `Ao vivo · ${clock || 'Em jogo'}` : `Hoje · ${timeStr}`;
+
+    const homeScoreNum =
+      state === 'in' && home?.score !== undefined ? Number(home.score) : undefined;
+    const awayScoreNum =
+      state === 'in' && away?.score !== undefined ? Number(away.score) : undefined;
+
+    const compLabel = LEAGUE_LABELS[slug] || meta?.name || slug.toUpperCase();
+
+    if (!candidateMap.has(eventId)) {
+      candidateMap.set(eventId, {
+        eventId,
+        leagueSlug: slug,
+        competition: compLabel,
+        tier: getLeaguePriorityTier(slug),
+        isFav: favSet.has(slug),
+        timestamp,
+        kickoffIso: evDate ? evDate.toISOString() : new Date(timestamp).toISOString(),
+        dateLabel,
+        state,
+        clock,
+        statusDetail: String(statusType?.detail || statusType?.shortDetail || 'Agendado'),
+        homeId: String(home.team.id),
+        homeName,
+        homeAbbr: (home.team.abbreviation || homeName || 'MAN').slice(0, 3).toUpperCase(),
+        homeColor: sanitizeHex(home.team.color, '#0F766E'),
+        homeLogoUrl: extractTeamLogoUrl(home.team),
+        awayId: String(away.team.id),
+        awayName,
+        awayAbbr: (away.team.abbreviation || awayName || 'VIS').slice(0, 3).toUpperCase(),
+        awayColor: sanitizeHex(away.team.color, '#1D4ED8'),
+        awayLogoUrl: extractTeamLogoUrl(away.team),
+        homeScore: Number.isFinite(homeScoreNum) ? homeScoreNum : undefined,
+        awayScore: Number.isFinite(awayScoreNum) ? awayScoreNum : undefined,
+        espnOdds:
+          espnHomeOdd || espnAwayOdd || espnDrawOdd
+            ? { home: espnHomeOdd, draw: espnDrawOdd, away: espnAwayOdd }
+            : undefined,
+      });
+    }
+  };
+
+  for (const ev of rawGlobalEvents) {
+    registerEvent(ev);
+  }
+  for (const { slug, json } of leagueBoards) {
+    for (const ev of json?.events || []) {
+      registerEvent(ev, slug);
+    }
+  }
+
+  const allCandidates = Array.from(candidateMap.values()).sort((a, b) => {
+    if (a.state !== b.state) return a.state === 'in' ? -1 : 1;
+    if (a.isFav !== b.isFav) return a.isFav ? -1 : 1;
+    if (a.tier !== b.tier) return a.tier - b.tier;
+    return a.timestamp - b.timestamp;
+  });
+
+  // Compute full Poisson model for up to 22 top matches to maintain fast API response
+  const statsSlice = allCandidates.slice(0, 22);
+  const involvedLeagues = Array.from(new Set(statsSlice.map((m) => m.leagueSlug)));
+  const teamPairs = Array.from(
+    new Map(
+      statsSlice.flatMap((m) => [
+        [`${m.leagueSlug}:${m.homeId}`, { slug: m.leagueSlug, teamId: m.homeId }],
+        [`${m.leagueSlug}:${m.awayId}`, { slug: m.leagueSlug, teamId: m.awayId }],
+      ])
+    ).entries()
+  );
+
+  const [standingsResults, scheduleResults] = await Promise.all([
+    Promise.all(
+      involvedLeagues.map(async (slug) => {
+        const json = await fetchJson<any>(
+          `https://site.api.espn.com/apis/v2/sports/soccer/${slug}/standings`,
+          5500
+        );
+        return [slug, json] as const;
+      })
+    ),
+    Promise.all(
+      teamPairs.map(async ([key, pair]) => {
+        const json = await fetchTeamScheduleWithAllFallback(pair.slug, pair.teamId);
+        return [key, json] as const;
+      })
+    ),
+  ]);
+
+  const standingsJsonMap = new Map<string, any>(standingsResults);
+  const scheduleMap = new Map<string, any>(scheduleResults);
+  const standingsEntriesByLeague = new Map<string, any[]>();
+  for (const [slug, sJson] of standingsJsonMap.entries()) {
+    const entries: any[] = [];
+    for (const child of sJson?.children || []) {
+      if (Array.isArray(child?.standings?.entries)) {
+        entries.push(...child.standings.entries);
+      }
+    }
+    standingsEntriesByLeague.set(slug, entries);
+  }
+
+  const defaultYear = String(nowDate.getFullYear());
+  const matches: DailyBetOddsMatch[] = [];
+
+  for (const m of allCandidates.slice(0, 36)) {
+    const homeRaw = scheduleMap.get(`${m.leagueSlug}:${m.homeId}`);
+    const awayRaw = scheduleMap.get(`${m.leagueSlug}:${m.awayId}`);
+
+    let homeWinPct = 43;
+    let drawPct = 28;
+    let awayWinPct = 29;
+    let over25Pct = 51;
+    let bttsPct = 52;
+    let expectedGoalsHome = 1.42;
+    let expectedGoalsAway = 1.12;
+
+    if (homeRaw || awayRaw) {
+      const homeEvents = parseScheduleEvents(homeRaw, m.homeId, m.competition)
+        .filter((e) => e.completed)
+        .sort((a, b) => b.timestamp - a.timestamp);
+      const awayEvents = parseScheduleEvents(awayRaw, m.awayId, m.competition)
+        .filter((e) => e.completed)
+        .sort((a, b) => b.timestamp - a.timestamp);
+
+      const buildStandingLocal = (teamId: string, events: ParsedScheduleEvent[]): TeamStandingsStats => {
+        const entries = standingsEntriesByLeague.get(m.leagueSlug) || [];
+        const entry = entries.find((e) => String(e?.team?.id) === String(teamId));
+        const fallback = buildStandingsFromSchedule(events);
+        if (!entry || !Array.isArray(entry.stats)) return fallback;
+        const played = getStatValue(entry.stats, 'gamesPlayed') ?? fallback.played;
+        const wins = getStatValue(entry.stats, 'wins') ?? fallback.wins;
+        const draws = getStatValue(entry.stats, 'ties') ?? fallback.draws;
+        const losses = getStatValue(entry.stats, 'losses') ?? fallback.losses;
+        const points = getStatValue(entry.stats, 'points') ?? fallback.points;
+        const goalsFor = getStatValue(entry.stats, 'pointsFor') ?? fallback.goalsFor;
+        const goalsAgainst = getStatValue(entry.stats, 'pointsAgainst') ?? fallback.goalsAgainst;
+        const goalDifference =
+          getStatValue(entry.stats, 'pointDifferential') ??
+          (goalsFor !== null && goalsAgainst !== null ? goalsFor - goalsAgainst : null);
+        const position = getStatValue(entry.stats, 'rank');
+        const winPercentage =
+          points !== null && played && played > 0
+            ? Math.round((points / (played * 3)) * 100)
+            : fallback.winPercentage;
+        return {
+          position,
+          points,
+          played,
+          wins,
+          draws,
+          losses,
+          goalsFor,
+          goalsAgainst,
+          goalDifference,
+          winPercentage,
+          homeRecord: fallback.homeRecord,
+          awayRecord: fallback.awayRecord,
+        };
+      };
+
+      const analysisData: MatchAnalysisData = {
+        competition: m.competition,
+        season: defaultYear,
+        matchDateInfo: m.dateLabel,
+        homeTeam: {
+          name: m.homeName,
+          shortCode: m.homeAbbr,
+          primaryColor: m.homeColor,
+          secondaryColor: '#FFFFFF',
+        },
+        awayTeam: {
+          name: m.awayName,
+          shortCode: m.awayAbbr,
+          primaryColor: m.awayColor,
+          secondaryColor: '#FFFFFF',
+        },
+        module1LastFive: {
+          home: buildLastFiveStats(homeEvents, m.competition),
+          away: buildLastFiveStats(awayEvents, m.competition),
+        },
+        module2HeadToHead: {
+          totalMatchesAnalyzed: 0,
+          homeTeamWins: 0,
+          awayTeamWins: 0,
+          draws: 0,
+          avgGoalsPerMatch: null,
+          recentMatches: [],
+        },
+        module3Standings: {
+          home: buildStandingLocal(m.homeId, homeEvents),
+          away: buildStandingLocal(m.awayId, awayEvents),
+        },
+        module4Complementary: {
+          home: {
+            avgCorners: null,
+            avgCards: null,
+            avgShots: null,
+            avgShotsOnTarget: null,
+            avgPossessionPct: null,
+            bttsPct: null,
+            over15Pct: null,
+            over25Pct: null,
+          },
+          away: {
+            avgCorners: null,
+            avgCards: null,
+            avgShots: null,
+            avgShotsOnTarget: null,
+            avgPossessionPct: null,
+            bttsPct: null,
+            over15Pct: null,
+            over25Pct: null,
+          },
+        },
+        module5Context: {
+          homeAdvantageNote: null,
+          matchImportance: null,
+          homeTeamContext: {
+            absencesAndSuspensions: [],
+            restDays: null,
+            recentCoachChange: null,
+            formNote: null,
+          },
+          awayTeamContext: {
+            absencesAndSuspensions: [],
+            restDays: null,
+            recentCoachChange: null,
+            formNote: null,
+          },
+          contextualImpactHome: 0,
+          contextualImpactAway: 0,
+        },
+        dataWarnings: [],
+      };
+
+      const poisson = calculatePoissonModel(analysisData);
+      homeWinPct = poisson.homeWinPct;
+      drawPct = poisson.drawPct;
+      awayWinPct = poisson.awayWinPct;
+      over25Pct = poisson.over25Pct;
+      bttsPct = poisson.bttsPct;
+      expectedGoalsHome = poisson.expectedGoalsHome;
+      expectedGoalsAway = poisson.expectedGoalsAway;
+    }
+
+    const hasEspnMoneyline = Boolean(
+      m.espnOdds?.home && m.espnOdds?.away && m.espnOdds?.draw
+    );
+
+    const odds = {
+      home:
+        m.espnOdds?.home ?? calibrateOddFromProb(homeWinPct, oddsMarginPct),
+      draw:
+        m.espnOdds?.draw ?? calibrateOddFromProb(drawPct, oddsMarginPct),
+      away:
+        m.espnOdds?.away ?? calibrateOddFromProb(awayWinPct, oddsMarginPct),
+      over25: calibrateOddFromProb(over25Pct, oddsMarginPct),
+      btts: calibrateOddFromProb(bttsPct, oddsMarginPct),
+    };
+
+    const marketCandidates = [
+      {
+        label: `Vitória ${m.homeName}`,
+        probPct: homeWinPct,
+        odd: odds.home,
+      },
+      {
+        label: 'Empate',
+        probPct: drawPct,
+        odd: odds.draw,
+      },
+      {
+        label: `Vitória ${m.awayName}`,
+        probPct: awayWinPct,
+        odd: odds.away,
+      },
+      {
+        label: 'Mais de 2,5 gols',
+        probPct: over25Pct,
+        odd: odds.over25,
+      },
+      {
+        label: 'Ambas marcam: Sim',
+        probPct: bttsPct,
+        odd: odds.btts,
+      },
+    ].sort((a, b) => b.probPct - a.probPct);
+
+    const topPick = marketCandidates[0];
+
+    matches.push({
+      eventId: m.eventId,
+      leagueSlug: m.leagueSlug,
+      competition: m.competition,
+      dateLabel: m.dateLabel,
+      kickoffIso: m.kickoffIso,
+      timestamp: m.timestamp,
+      state: m.state,
+      clock: m.clock,
+      statusDetail: m.statusDetail,
+      homeTeam: m.homeName,
+      awayTeam: m.awayName,
+      homeShortCode: m.homeAbbr,
+      awayShortCode: m.awayAbbr,
+      homeLogoUrl: m.homeLogoUrl,
+      awayLogoUrl: m.awayLogoUrl,
+      homeColor: m.homeColor,
+      awayColor: m.awayColor,
+      homeScore: m.homeScore,
+      awayScore: m.awayScore,
+      expectedGoalsHome,
+      expectedGoalsAway,
+      probabilities: {
+        homeWinPct,
+        drawPct,
+        awayWinPct,
+        over25Pct,
+        bttsPct,
+      },
+      odds,
+      oddsSource: hasEspnMoneyline ? 'espn_model' : 'poisson_calibrated',
+      recommendedMarket: topPick.label,
+      recommendedOdd: topPick.odd,
+      recommendedProbPct: topPick.probPct,
+    });
+  }
+
+  const formattedToday = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+  }).format(nowDate);
+
+  return {
+    dateLabel: formattedToday,
+    updatedAt: new Date().toISOString(),
+    oddsMarginPct,
+    totalMatches: matches.length,
+    matches,
+  };
 }
 

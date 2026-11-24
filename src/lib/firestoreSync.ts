@@ -17,13 +17,52 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase.ts';
 import type {
+  AppGlobalConfig,
   AppSettings,
   LiveMatchScore,
+  MatchSearchWindow,
+  MatchSortMode,
   MultipleHistoryItem,
   MultipleHistoryLeg,
   MultipleTipStatus,
+  NotificationPreferences,
   PredictionHistoryItem,
+  SearchPreferences,
+  UserAccountRecord,
+  UserAccountStatus,
+  UserRole,
 } from '../types/football.ts';
+
+export const BOOTSTRAPPED_ADMIN_EMAIL = 'l2xbrasil@gmail.com';
+
+export const DEFAULT_SEARCH_PREFERENCES: SearchPreferences = {
+  window: 'week',
+  includeLiveMatches: true,
+  sortBy: 'time',
+  favoriteLeagues: [],
+};
+
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  enabled: true,
+  browserPush: false,
+  notifyLiveGoals: true,
+  notifyBetResolved: true,
+  notifyDailySuperTip: false,
+  notifyKickoffMinutes: 30,
+  soundEnabled: false,
+};
+
+export const DEFAULT_APP_GLOBAL_CONFIG: AppGlobalConfig = {
+  appName: 'CampoStats',
+  announcementBanner: '',
+  maintenanceMode: false,
+  bettingMenuEnabled: true,
+  defaultChampionshipScope: 'brasil',
+  defaultMultipleCount: 3,
+  defaultSearchWindow: 'week',
+  oddsMarginPct: 5,
+  minTipProbabilityPct: 60,
+};
 
 export function sanitizeDocId(rawId: string): string {
   const cleaned = String(rawId || '')
@@ -117,6 +156,53 @@ export interface SyncedPreferences {
   theme: 'light' | 'dark';
 }
 
+function normalizeSearchPreferences(raw: unknown): SearchPreferences {
+  const sp = (raw && typeof raw === 'object' ? raw : {}) as Partial<SearchPreferences>;
+  const windowVal: MatchSearchWindow =
+    sp.window === 'today' || sp.window === '48h' || sp.window === 'week'
+      ? sp.window
+      : DEFAULT_SEARCH_PREFERENCES.window;
+  const sortByVal: MatchSortMode =
+    sp.sortBy === 'time' || sp.sortBy === 'league' || sp.sortBy === 'odds_balance'
+      ? sp.sortBy
+      : DEFAULT_SEARCH_PREFERENCES.sortBy;
+  const favoriteLeagues = Array.isArray(sp.favoriteLeagues)
+    ? Array.from(
+        new Set(
+          sp.favoriteLeagues
+            .map((s) => clampStr(s, 64))
+            .filter(Boolean)
+        )
+      ).slice(0, 12)
+    : [];
+
+  return {
+    window: windowVal,
+    includeLiveMatches: Boolean(sp.includeLiveMatches ?? true),
+    sortBy: sortByVal,
+    favoriteLeagues,
+  };
+}
+
+function normalizeNotificationPreferences(raw: unknown): NotificationPreferences {
+  const np = (raw && typeof raw === 'object' ? raw : {}) as Partial<NotificationPreferences>;
+  const rawMinutes = Number(np.notifyKickoffMinutes);
+  const kickoffMinutes: 0 | 15 | 30 | 60 =
+    rawMinutes === 0 || rawMinutes === 15 || rawMinutes === 30 || rawMinutes === 60
+      ? rawMinutes
+      : 30;
+
+  return {
+    enabled: Boolean(np.enabled ?? true),
+    browserPush: Boolean(np.browserPush ?? false),
+    notifyLiveGoals: Boolean(np.notifyLiveGoals ?? true),
+    notifyBetResolved: Boolean(np.notifyBetResolved ?? true),
+    notifyDailySuperTip: Boolean(np.notifyDailySuperTip ?? false),
+    notifyKickoffMinutes: kickoffMinutes,
+    soundEnabled: Boolean(np.soundEnabled ?? false),
+  };
+}
+
 export function subscribeUserPreferences(
   uid: string,
   onData: (prefs: SyncedPreferences | null) => void,
@@ -158,6 +244,8 @@ export function subscribeUserPreferences(
             1.25,
             1.12
           ),
+          searchPreferences: normalizeSearchPreferences(d.searchPreferences),
+          notifications: normalizeNotificationPreferences(d.notifications),
         },
       });
     },
@@ -201,6 +289,8 @@ export async function saveUserPreferences(
       1.25,
       1.12
     ),
+    searchPreferences: normalizeSearchPreferences(settings.searchPreferences),
+    notifications: normalizeNotificationPreferences(settings.notifications),
     updatedAt: serverTimestamp(),
   };
 
@@ -618,5 +708,310 @@ export async function migrateLocalDataToFirestore(
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, multiplesPath);
     }
+  }
+}
+
+export function isBootstrappedAdminEmail(email?: string | null): boolean {
+  return Boolean(email && email.trim().toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL);
+}
+
+export async function checkUserIsAdmin(user: User | null): Promise<boolean> {
+  if (!user || !user.emailVerified) return false;
+  if (isBootstrappedAdminEmail(user.email)) return true;
+  try {
+    const adminSnap = await getDoc(doc(db, 'admins', user.uid));
+    return adminSnap.exists();
+  } catch {
+    return false;
+  }
+}
+
+export function subscribeAppGlobalConfig(
+  onData: (config: AppGlobalConfig) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  const path = 'appConfig/global';
+  const ref = doc(db, 'appConfig', 'global');
+
+  return onSnapshot(
+    ref,
+    (snap) => {
+      if (!snap.exists()) {
+        onData({ ...DEFAULT_APP_GLOBAL_CONFIG });
+        return;
+      }
+      const d = snap.data();
+      const rawMult = Number(d.defaultMultipleCount);
+      const defaultMultipleCount: 3 | 4 | 5 | 10 =
+        rawMult === 4 || rawMult === 5 || rawMult === 10 ? rawMult : 3;
+      onData({
+        appName: clampStr(d.appName, 80, 'CampoStats'),
+        announcementBanner: clampStr(d.announcementBanner ?? '', 280),
+        maintenanceMode: Boolean(d.maintenanceMode),
+        bettingMenuEnabled: Boolean(d.bettingMenuEnabled ?? true),
+        defaultChampionshipScope:
+          d.defaultChampionshipScope === 'principais' ||
+          d.defaultChampionshipScope === 'todos'
+            ? d.defaultChampionshipScope
+            : 'brasil',
+        defaultMultipleCount,
+        defaultSearchWindow:
+          d.defaultSearchWindow === 'today' || d.defaultSearchWindow === '48h'
+            ? d.defaultSearchWindow
+            : 'week',
+        oddsMarginPct: clampNum(d.oddsMarginPct, 0, 20, 5),
+        minTipProbabilityPct: clampNum(d.minTipProbabilityPct, 50, 90, 60),
+        updatedAt: d.updatedAt ? toIsoString(d.updatedAt) : undefined,
+        updatedByEmail: d.updatedByEmail ? String(d.updatedByEmail) : undefined,
+      });
+    },
+    (error) => {
+      if (onError) {
+        try {
+          handleFirestoreError(error, OperationType.GET, path);
+        } catch (wrapped) {
+          onError(wrapped as Error);
+        }
+      }
+    }
+  );
+}
+
+export async function saveAppGlobalConfig(
+  adminUser: User,
+  config: AppGlobalConfig
+): Promise<void> {
+  if (!adminUser.uid || !adminUser.email) return;
+  const path = 'appConfig/global';
+  const ref = doc(db, 'appConfig', 'global');
+  const rawMult = Number(config.defaultMultipleCount);
+  const defaultMultipleCount: 3 | 4 | 5 | 10 =
+    rawMult === 4 || rawMult === 5 || rawMult === 10 ? rawMult : 3;
+
+  const basePayload = {
+    appName: clampStr(config.appName, 80, 'CampoStats'),
+    announcementBanner: clampStr(config.announcementBanner ?? '', 280),
+    maintenanceMode: Boolean(config.maintenanceMode),
+    bettingMenuEnabled: Boolean(config.bettingMenuEnabled),
+    defaultChampionshipScope:
+      config.defaultChampionshipScope === 'principais' ||
+      config.defaultChampionshipScope === 'todos'
+        ? config.defaultChampionshipScope
+        : 'brasil',
+    defaultMultipleCount,
+    defaultSearchWindow:
+      config.defaultSearchWindow === 'today' ||
+      config.defaultSearchWindow === '48h'
+        ? config.defaultSearchWindow
+        : 'week',
+    oddsMarginPct: clampNum(config.oddsMarginPct, 0, 20, 5),
+    minTipProbabilityPct: clampNum(config.minTipProbabilityPct, 50, 90, 60),
+    updatedByUid: adminUser.uid,
+    updatedByEmail: clampStr(adminUser.email, 254),
+    updatedAt: serverTimestamp(),
+  };
+
+  try {
+    const existingSnap = await getDoc(ref);
+    if (existingSnap.exists()) {
+      await updateDoc(ref, basePayload);
+    } else {
+      await setDoc(ref, {
+        ...basePayload,
+        createdAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function upsertUserAccountRecord(
+  user: User,
+  stats: { analysesCount: number; multiplesCount: number }
+): Promise<void> {
+  if (!user.uid || !user.email || !user.emailVerified) return;
+  const path = `userAccounts/${user.uid}`;
+  const ref = doc(db, 'userAccounts', user.uid);
+  const displayName = clampStr(
+    user.displayName || user.email.split('@')[0] || 'Usuário',
+    120,
+    'Usuário'
+  );
+  const email = clampStr(user.email, 254);
+  const analysesCount = Math.max(0, Math.min(100000, Math.floor(stats.analysesCount)));
+  const multiplesCount = Math.max(0, Math.min(100000, Math.floor(stats.multiplesCount)));
+
+  try {
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const updatePayload: Record<string, unknown> = {
+        displayName,
+        email,
+        analysesCount,
+        multiplesCount,
+        lastLoginAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+      if (user.photoURL) {
+        updatePayload.photoURL = clampStr(user.photoURL, 512);
+      }
+      await updateDoc(ref, updatePayload);
+    } else {
+      const createPayload: Record<string, unknown> = {
+        ownerId: user.uid,
+        email,
+        displayName,
+        role: isBootstrappedAdminEmail(user.email) ? 'admin' : 'user',
+        status: 'active',
+        analysesCount,
+        multiplesCount,
+        lastLoginAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+      if (user.photoURL) {
+        createPayload.photoURL = clampStr(user.photoURL, 512);
+      }
+      await setDoc(ref, createPayload);
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+function mapUserAccountSnap(
+  id: string,
+  d: Record<string, any>
+): UserAccountRecord {
+  const role: UserRole = d.role === 'admin' ? 'admin' : 'user';
+  const status: UserAccountStatus = d.status === 'blocked' ? 'blocked' : 'active';
+  return {
+    uid: id,
+    ownerId: String(d.ownerId || id),
+    email: String(d.email || ''),
+    displayName: String(d.displayName || 'Usuário'),
+    photoURL: d.photoURL ? String(d.photoURL) : undefined,
+    role,
+    status,
+    analysesCount: Number(d.analysesCount ?? 0),
+    multiplesCount: Number(d.multiplesCount ?? 0),
+    lastLoginAt: toIsoString(d.lastLoginAt),
+    createdAt: toIsoString(d.createdAt),
+    updatedAt: toIsoString(d.updatedAt),
+  };
+}
+
+export function subscribeCurrentUserAccount(
+  uid: string,
+  onData: (account: UserAccountRecord | null) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  const path = `userAccounts/${uid}`;
+  const ref = doc(db, 'userAccounts', uid);
+
+  return onSnapshot(
+    ref,
+    (snap) => {
+      if (!snap.exists()) {
+        onData(null);
+        return;
+      }
+      onData(mapUserAccountSnap(snap.id, snap.data()));
+    },
+    (error) => {
+      if (onError) {
+        try {
+          handleFirestoreError(error, OperationType.GET, path);
+        } catch (wrapped) {
+          onError(wrapped as Error);
+        }
+      }
+    }
+  );
+}
+
+export function subscribeAllUserAccounts(
+  onData: (accounts: UserAccountRecord[]) => void,
+  onError: (err: Error) => void
+): Unsubscribe {
+  const path = 'userAccounts';
+  const ref = collection(db, 'userAccounts');
+
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      const list = snapshot.docs.map((docSnap) =>
+        mapUserAccountSnap(docSnap.id, docSnap.data())
+      );
+      list.sort(
+        (a, b) =>
+          new Date(b.lastLoginAt).getTime() - new Date(a.lastLoginAt).getTime()
+      );
+      onData(list);
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.LIST, path);
+      } catch (wrapped) {
+        onError(wrapped as Error);
+      }
+    }
+  );
+}
+
+export async function adminUpdateUserAccount(
+  adminUser: User,
+  targetAccount: UserAccountRecord,
+  updates: {
+    role?: UserRole;
+    status?: UserAccountStatus;
+  }
+): Promise<void> {
+  const targetUid = sanitizeDocId(targetAccount.uid);
+  const path = `userAccounts/${targetUid}`;
+  const accountRef = doc(db, 'userAccounts', targetUid);
+
+  const payload: Record<string, unknown> = {
+    updatedAt: serverTimestamp(),
+  };
+  if (updates.role) {
+    payload.role = updates.role;
+  }
+  if (updates.status) {
+    payload.status = updates.status;
+  }
+
+  try {
+    await updateDoc(accountRef, payload);
+
+    if (updates.role !== undefined) {
+      const adminRef = doc(db, 'admins', targetUid);
+      if (updates.role === 'admin') {
+        const existingAdmin = await getDoc(adminRef);
+        if (existingAdmin.exists()) {
+          await updateDoc(adminRef, {
+            email: clampStr(targetAccount.email, 254),
+            grantedByUid: adminUser.uid,
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          await setDoc(adminRef, {
+            uid: targetUid,
+            email: clampStr(targetAccount.email, 254),
+            grantedByUid: adminUser.uid,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
+      } else if (!isBootstrappedAdminEmail(targetAccount.email)) {
+        const existingAdmin = await getDoc(adminRef);
+        if (existingAdmin.exists()) {
+          await deleteDoc(adminRef);
+        }
+      }
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }

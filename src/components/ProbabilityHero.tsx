@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bookmark, Check, RefreshCw, ArrowRight } from 'lucide-react';
 import { CompetitionFlag } from './CompetitionFlag.tsx';
+import { MiniPitch } from './MiniPitch.tsx';
 import { TeamCrest } from './TeamCrest.tsx';
 import type { AnalysisResponsePayload, PoissonModelResult } from '../types/football.ts';
 
@@ -100,6 +101,26 @@ export const ProbabilityHero: React.FC<ProbabilityHeroProps> = ({
             </span>
           </div>
         </div>
+
+        {/* Tactical Mini Pitch */}
+        <MiniPitch
+          variant="hero"
+          className="mt-4 sm:mt-5"
+          homeTeam={data.homeTeam}
+          awayTeam={data.awayTeam}
+          expectedGoalsHome={model.expectedGoalsHome}
+          expectedGoalsAway={model.expectedGoalsAway}
+          homeWinPct={model.homeWinPct}
+          drawPct={model.drawPct}
+          awayWinPct={model.awayWinPct}
+          homePossessionPct={data.module4Complementary.home.avgPossessionPct}
+          awayPossessionPct={data.module4Complementary.away.avgPossessionPct}
+          homeShots={data.module4Complementary.home.avgShots}
+          awayShots={data.module4Complementary.away.avgShots}
+          homeShotsOnTarget={data.module4Complementary.home.avgShotsOnTarget}
+          awayShotsOnTarget={data.module4Complementary.away.avgShotsOnTarget}
+          centerLabel={`λ ${model.expectedGoalsHome.toFixed(1)} : ${model.expectedGoalsAway.toFixed(1)}`}
+        />
 
         {/* 1X2 Probabilities */}
         <div className="mt-5 sm:mt-6">

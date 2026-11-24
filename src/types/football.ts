@@ -230,6 +230,8 @@ export interface PredictionHistoryItem {
 
 export type ChampionshipScope = 'brasil' | 'principais' | 'todos';
 export type UpdateMode = 'auto' | 'manual';
+export type MatchSearchWindow = 'today' | '48h' | 'week';
+export type MatchSortMode = 'time' | 'league' | 'odds_balance';
 
 export interface ActiveModulesConfig {
   lastFive: boolean;
@@ -242,12 +244,123 @@ export interface ActiveModulesConfig {
   contextFactors: boolean;
 }
 
+export interface SearchPreferences {
+  window: MatchSearchWindow;
+  includeLiveMatches: boolean;
+  sortBy: MatchSortMode;
+  favoriteLeagues: string[];
+}
+
+export interface NotificationPreferences {
+  enabled: boolean;
+  browserPush: boolean;
+  notifyLiveGoals: boolean;
+  notifyBetResolved: boolean;
+  notifyDailySuperTip: boolean;
+  notifyKickoffMinutes: 0 | 15 | 30 | 60;
+  soundEnabled: boolean;
+}
+
 export interface AppSettings {
   championshipScope: ChampionshipScope;
   updateMode: UpdateMode;
   activeModules: ActiveModulesConfig;
   recentFormWeight: number; // 0.15 to 0.55
   homeAdvantageMultiplier: number; // 1.00 to 1.25
+  searchPreferences: SearchPreferences;
+  notifications: NotificationPreferences;
+}
+
+export interface AppGlobalConfig {
+  appName: string;
+  announcementBanner: string;
+  maintenanceMode: boolean;
+  bettingMenuEnabled: boolean;
+  defaultChampionshipScope: ChampionshipScope;
+  defaultMultipleCount: 3 | 4 | 5 | 10;
+  defaultSearchWindow: MatchSearchWindow;
+  oddsMarginPct: number;
+  minTipProbabilityPct: number;
+  updatedAt?: string;
+  updatedByEmail?: string;
+}
+
+export type UserRole = 'user' | 'admin';
+export type UserAccountStatus = 'active' | 'blocked';
+
+export interface UserAccountRecord {
+  uid: string;
+  ownerId: string;
+  email: string;
+  displayName: string;
+  photoURL?: string;
+  role: UserRole;
+  status: UserAccountStatus;
+  analysesCount: number;
+  multiplesCount: number;
+  lastLoginAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type BettingMarketKey = 'home' | 'draw' | 'away' | 'over25' | 'btts';
+
+export interface DailyBetOddsMatch {
+  eventId: string;
+  leagueSlug: string;
+  competition: string;
+  dateLabel: string;
+  kickoffIso: string;
+  timestamp: number;
+  state: MatchLiveState;
+  clock?: string;
+  statusDetail: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeShortCode: string;
+  awayShortCode: string;
+  homeLogoUrl?: string;
+  awayLogoUrl?: string;
+  homeColor: string;
+  awayColor: string;
+  homeScore?: number;
+  awayScore?: number;
+  expectedGoalsHome: number;
+  expectedGoalsAway: number;
+  probabilities: {
+    homeWinPct: number;
+    drawPct: number;
+    awayWinPct: number;
+    over25Pct: number;
+    bttsPct: number;
+  };
+  odds: {
+    home: number;
+    draw: number;
+    away: number;
+    over25: number;
+    btts: number;
+  };
+  oddsSource: 'espn_model' | 'poisson_calibrated';
+  recommendedMarket: string;
+  recommendedOdd: number;
+  recommendedProbPct: number;
+}
+
+export interface DailyBetsResponse {
+  dateLabel: string;
+  updatedAt: string;
+  oddsMarginPct: number;
+  totalMatches: number;
+  matches: DailyBetOddsMatch[];
+}
+
+export interface InAppNotificationItem {
+  id: string;
+  title: string;
+  message: string;
+  category: 'goal' | 'bet' | 'tip' | 'system';
+  createdAt: string;
 }
 
 export interface SuggestedFixture {

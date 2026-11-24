@@ -16,6 +16,14 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'l2xbrasil@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
     function isOwner(userId) {
       return isVerifiedUser() && request.auth.uid == userId;
     }
@@ -46,6 +54,45 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidSearchPreferences(sp) {
+      return sp is map
+        && sp.keys().hasAll(['window', 'includeLiveMatches', 'sortBy', 'favoriteLeagues'])
+        && sp.keys().hasOnly(['window', 'includeLiveMatches', 'sortBy', 'favoriteLeagues'])
+        && sp.window is string && sp.window.size() <= 20 && sp.window in ['today', '48h', 'week']
+        && sp.includeLiveMatches is bool
+        && sp.sortBy is string && sp.sortBy.size() <= 24 && sp.sortBy in ['time', 'league', 'odds_balance']
+        && sp.favoriteLeagues is list && sp.favoriteLeagues.size() <= 12;
+    }
+
+    function isValidNotificationPreferences(np) {
+      return np is map
+        && np.keys().hasAll([
+          'enabled',
+          'browserPush',
+          'notifyLiveGoals',
+          'notifyBetResolved',
+          'notifyDailySuperTip',
+          'notifyKickoffMinutes',
+          'soundEnabled'
+        ])
+        && np.keys().hasOnly([
+          'enabled',
+          'browserPush',
+          'notifyLiveGoals',
+          'notifyBetResolved',
+          'notifyDailySuperTip',
+          'notifyKickoffMinutes',
+          'soundEnabled'
+        ])
+        && np.enabled is bool
+        && np.browserPush is bool
+        && np.notifyLiveGoals is bool
+        && np.notifyBetResolved is bool
+        && np.notifyDailySuperTip is bool
+        && np.notifyKickoffMinutes is int && np.notifyKickoffMinutes in [0, 15, 30, 60]
+        && np.soundEnabled is bool;
+    }
+
     function isValidUserPreferences(data, userId) {
       return data.keys().hasAll([
           'ownerId',
@@ -66,6 +113,8 @@ service cloud.firestore {
           'activeModules',
           'recentFormWeight',
           'homeAdvantageMultiplier',
+          'searchPreferences',
+          'notifications',
           'createdAt',
           'updatedAt'
         ])
@@ -98,6 +147,8 @@ service cloud.firestore {
         ])
         && data.recentFormWeight is number && data.recentFormWeight >= 0.10 && data.recentFormWeight <= 0.65
         && data.homeAdvantageMultiplier is number && data.homeAdvantageMultiplier >= 0.90 && data.homeAdvantageMultiplier <= 1.40
+        && (!('searchPreferences' in data) || isValidSearchPreferences(data.searchPreferences))
+        && (!('notifications' in data) || isValidNotificationPreferences(data.notifications))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -232,6 +283,105 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidAppGlobalConfig(data) {
+      return data.keys().hasAll([
+          'appName',
+          'announcementBanner',
+          'maintenanceMode',
+          'bettingMenuEnabled',
+          'defaultChampionshipScope',
+          'defaultMultipleCount',
+          'defaultSearchWindow',
+          'oddsMarginPct',
+          'minTipProbabilityPct',
+          'updatedByUid',
+          'updatedByEmail',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'appName',
+          'announcementBanner',
+          'maintenanceMode',
+          'bettingMenuEnabled',
+          'defaultChampionshipScope',
+          'defaultMultipleCount',
+          'defaultSearchWindow',
+          'oddsMarginPct',
+          'minTipProbabilityPct',
+          'updatedByUid',
+          'updatedByEmail',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.appName is string && data.appName.size() >= 1 && data.appName.size() <= 80
+        && data.announcementBanner is string && data.announcementBanner.size() <= 280
+        && data.maintenanceMode is bool
+        && data.bettingMenuEnabled is bool
+        && data.defaultChampionshipScope is string && data.defaultChampionshipScope.size() <= 20 && data.defaultChampionshipScope in ['brasil', 'principais', 'todos']
+        && data.defaultMultipleCount is int && data.defaultMultipleCount in [3, 4, 5, 10]
+        && data.defaultSearchWindow is string && data.defaultSearchWindow.size() <= 20 && data.defaultSearchWindow in ['today', '48h', 'week']
+        && data.oddsMarginPct is number && data.oddsMarginPct >= 0 && data.oddsMarginPct <= 20
+        && data.minTipProbabilityPct is number && data.minTipProbabilityPct >= 50 && data.minTipProbabilityPct <= 90
+        && isValidId(data.updatedByUid)
+        && data.updatedByUid == request.auth.uid
+        && data.updatedByEmail is string && data.updatedByEmail.size() >= 3 && data.updatedByEmail.size() <= 254
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserAccountRecord(data, userId) {
+      return data.keys().hasAll([
+          'ownerId',
+          'email',
+          'displayName',
+          'role',
+          'status',
+          'analysesCount',
+          'multiplesCount',
+          'lastLoginAt',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId',
+          'email',
+          'displayName',
+          'photoURL',
+          'role',
+          'status',
+          'analysesCount',
+          'multiplesCount',
+          'lastLoginAt',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 512))
+        && data.role is string && data.role.size() <= 16 && data.role in ['user', 'admin']
+        && data.status is string && data.status.size() <= 16 && data.status in ['active', 'blocked']
+        && data.analysesCount is int && data.analysesCount >= 0 && data.analysesCount <= 100000
+        && data.multiplesCount is int && data.multiplesCount >= 0 && data.multiplesCount <= 100000
+        && data.lastLoginAt is timestamp
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAdminGrant(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'grantedByUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'grantedByUid', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && isValidId(data.grantedByUid)
+        && data.grantedByUid == request.auth.uid
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     // 1. Private User Profile (PII isolated)
     match /users/{userId}/private/{profileDocId} {
       allow get: if isValidId(userId) && isValidId(profileDocId) && profileDocId == 'profile' && isOwner(userId);
@@ -281,6 +431,8 @@ service cloud.firestore {
           'activeModules',
           'recentFormWeight',
           'homeAdvantageMultiplier',
+          'searchPreferences',
+          'notifications',
           'updatedAt'
         ]);
       allow delete: if isValidId(userId) && isValidId(settingId) && settingId == 'preferences' && isOwner(userId);
@@ -331,6 +483,95 @@ service cloud.firestore {
           incoming().diff(existing()).affectedKeys().hasOnly(['legs', 'status', 'resolvedAt', 'updatedAt'])
         );
       allow delete: if isValidId(userId) && isValidId(multipleId) && isOwner(userId);
+    }
+
+    // 5. Global App Configuration (Public non-PII get on 'global', Admin-only writes)
+    match /appConfig/{configId} {
+      allow get: if isValidId(configId) && configId == 'global';
+      allow create: if isValidId(configId)
+        && configId == 'global'
+        && isAdmin()
+        && isValidAppGlobalConfig(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(configId)
+        && configId == 'global'
+        && isAdmin()
+        && isValidAppGlobalConfig(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'appName',
+          'announcementBanner',
+          'maintenanceMode',
+          'bettingMenuEnabled',
+          'defaultChampionshipScope',
+          'defaultMultipleCount',
+          'defaultSearchWindow',
+          'oddsMarginPct',
+          'minTipProbabilityPct',
+          'updatedByUid',
+          'updatedByEmail',
+          'updatedAt'
+        ]);
+      allow delete: if isValidId(configId) && configId == 'global' && isBootstrappedAdmin();
+    }
+
+    // 6. User Directory for Admin Panel (Owner can sync own stats; Admins can list & manage role/status)
+    match /userAccounts/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && incoming().ownerId == request.auth.uid
+        && isValidUserAccountRecord(incoming(), userId)
+        && (incoming().role == 'user' || isBootstrappedAdmin())
+        && incoming().status == 'active'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isValidUserAccountRecord(incoming(), userId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isOwner(userId)
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName',
+              'email',
+              'photoURL',
+              'analysesCount',
+              'multiplesCount',
+              'lastLoginAt',
+              'updatedAt'
+            ]))
+          || (isAdmin()
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'role',
+              'status',
+              'displayName',
+              'updatedAt'
+            ]))
+        );
+      allow delete: if isValidId(userId) && isAdmin() && userId != request.auth.uid;
+    }
+
+    // 7. Explicit Admin Grants
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow create: if isValidId(userId)
+        && isAdmin()
+        && isValidAdminGrant(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isAdmin()
+        && isValidAdminGrant(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'grantedByUid', 'updatedAt']);
+      allow delete: if isValidId(userId) && isAdmin() && userId != request.auth.uid;
     }
   }
 }

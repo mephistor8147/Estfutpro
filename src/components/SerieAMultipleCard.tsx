@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { MULTIPLE_COMPETITIONS } from '../lib/competitions.ts';
 import { CompetitionFlag } from './CompetitionFlag.tsx';
+import { MiniPitch } from './MiniPitch.tsx';
 import { TeamCrest } from './TeamCrest.tsx';
 import {
   buildWhatsappSummaryText,
@@ -431,7 +432,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
               })}
             </div>
 
-            <div className="relative w-full sm:flex-1 sm:min-w-[200px] xl:w-[230px] xl:flex-initial">
+            <div className="relative w-full min-w-0 sm:flex-1 sm:min-w-[200px] xl:w-[230px] xl:flex-initial">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 flex items-center">
                 <CompetitionFlag
                   leagueSlug={selectedLeague}
@@ -641,6 +642,24 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                     </span>
                   </div>
 
+                  <MiniPitch
+                    variant="compact"
+                    homeTeam={{
+                      name: leg.homeTeam,
+                      shortCode: leg.homeShortCode,
+                      primaryColor: leg.homeColor,
+                      logoUrl: leg.homeLogoUrl,
+                    }}
+                    awayTeam={{
+                      name: leg.awayTeam,
+                      shortCode: leg.awayShortCode,
+                      primaryColor: leg.awayColor,
+                      logoUrl: leg.awayLogoUrl,
+                    }}
+                    expectedGoalsHome={leg.expectedGoalsHome}
+                    expectedGoalsAway={leg.expectedGoalsAway}
+                  />
+
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-2 min-w-0">
                       <TeamCrest
@@ -784,7 +803,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
             </div>
 
             {/* Save + WhatsApp + Image Actions Row — Always Visible on Every Screen */}
-            <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={handleSaveTip}
@@ -794,7 +813,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                     ? 'Dica salva no histórico de acertos e perdas'
                     : 'Salvar dica para acompanhar acertos e perdas'
                 }
-                className={`min-h-[44px] px-3.5 py-2 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
+                className={`min-h-[44px] px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
                   isSavedInHistory
                     ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200'
                     : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'
@@ -803,7 +822,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                 {isSavedInHistory ? (
                   <>
                     <BookmarkCheck className="w-4 h-4 shrink-0" />
-                    <span>Salva no histórico</span>
+                    <span className="truncate">Salva no histórico</span>
                   </>
                 ) : (
                   <>
@@ -815,9 +834,21 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
 
               <button
                 type="button"
+                onClick={handleGenerateImageOnly}
+                disabled={isGeneratingImage}
+                title="Gerar e baixar imagem PNG da múltipla"
+                aria-label="Gerar e baixar imagem PNG da múltipla"
+                className="min-h-[44px] px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60 sm:order-3"
+              >
+                <ImageIcon className="w-4 h-4 shrink-0" />
+                <span>Baixar imagem</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={handleShareWhatsapp}
                 disabled={isGeneratingImage}
-                className="min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
+                className="col-span-2 sm:col-span-1 sm:order-2 min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
               >
                 {isGeneratingImage ? (
                   <Loader2 className="w-4 h-4 animate-spin shrink-0" />
@@ -825,18 +856,6 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                   <Share2 className="w-4 h-4 shrink-0" />
                 )}
                 <span>Enviar no WhatsApp</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleGenerateImageOnly}
-                disabled={isGeneratingImage}
-                title="Gerar e baixar imagem PNG da múltipla"
-                aria-label="Gerar e baixar imagem PNG da múltipla"
-                className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
-              >
-                <ImageIcon className="w-4 h-4 shrink-0" />
-                <span>Baixar imagem</span>
               </button>
             </div>
 
@@ -858,12 +877,12 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                         {shareFeedback}
                       </p>
                     )}
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="grid grid-cols-1 min-[420px]:grid-cols-3 sm:flex sm:flex-wrap items-center gap-2">
                       <a
                         href={whatsappHref}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="min-h-[44px] px-3.5 py-2 rounded-lg bg-[#25D366] hover:bg-[#1ebe5d] text-slate-950 text-xs font-bold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                        className="min-h-[44px] px-3.5 py-2 rounded-lg bg-[#25D366] hover:bg-[#1ebe5d] text-slate-950 text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
                       >
                         <Share2 className="w-3.5 h-3.5 shrink-0" />
                         <span>Abrir WhatsApp com texto</span>
@@ -873,7 +892,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                         <a
                           href={generatedPreview.dataUrl}
                           download={generatedPreview.fileName}
-                          className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                          className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
                         >
                           <Download className="w-3.5 h-3.5 shrink-0" />
                           <span>Baixar PNG</span>
@@ -883,7 +902,7 @@ export const SerieAMultipleCard: React.FC<SerieAMultipleCardProps> = ({
                       <button
                         type="button"
                         onClick={handleCopyWhatsappText}
-                        className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                        className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
                       >
                         {copiedText ? (
                           <>

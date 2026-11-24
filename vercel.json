@@ -21,6 +21,9 @@
     },
     "api/super-combined-tip.ts": {
       "maxDuration": 25
+    },
+    "api/bets-today.ts": {
+      "maxDuration": 25
     }
   },
   "headers": [

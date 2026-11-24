@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { CompetitionFlag } from './CompetitionFlag.tsx';
+import { MiniPitch } from './MiniPitch.tsx';
 import { TeamCrest } from './TeamCrest.tsx';
 import {
   buildSuperCombinedWhatsappText,
@@ -344,7 +345,7 @@ export const SuperCombinedTipCard: React.FC<SuperCombinedTipCardProps> = ({
         </div>
 
         {/* Interactive Mode Switcher & Refresh */}
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 shrink-0 w-full lg:w-auto">
           {hasSameGame && hasMulti && (
             <div
               role="tablist"
@@ -386,7 +387,7 @@ export const SuperCombinedTipCard: React.FC<SuperCombinedTipCardProps> = ({
             type="button"
             onClick={onRefresh}
             disabled={isLoading}
-            className="flex-1 sm:flex-initial min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
+            className="w-full sm:w-auto min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
           >
             <RefreshCw
               className={`w-3.5 h-3.5 shrink-0 ${isLoading ? 'animate-spin' : ''}`}
@@ -519,6 +520,25 @@ export const SuperCombinedTipCard: React.FC<SuperCombinedTipCardProps> = ({
                           </span>
                         </span>
                       </div>
+
+                      {/* Mini Campo */}
+                      <MiniPitch
+                        variant="compact"
+                        homeTeam={{
+                          name: leg.homeTeam,
+                          shortCode: leg.homeShortCode,
+                          primaryColor: leg.homeColor,
+                          logoUrl: leg.homeLogoUrl,
+                        }}
+                        awayTeam={{
+                          name: leg.awayTeam,
+                          shortCode: leg.awayShortCode,
+                          primaryColor: leg.awayColor,
+                          logoUrl: leg.awayLogoUrl,
+                        }}
+                        expectedGoalsHome={leg.expectedGoalsHome}
+                        expectedGoalsAway={leg.expectedGoalsAway}
+                      />
 
                       {/* Teams Matchup with Official Crests */}
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
@@ -731,6 +751,31 @@ export const SuperCombinedTipCard: React.FC<SuperCombinedTipCardProps> = ({
                 )}
               </div>
 
+              {/* Hero Mini Campo for Featured Match */}
+              <MiniPitch
+                variant="hero"
+                homeTeam={{
+                  name: activeSameGame.homeTeam,
+                  shortCode: activeSameGame.homeShortCode,
+                  primaryColor: activeSameGame.homeColor,
+                  logoUrl: activeSameGame.homeLogoUrl,
+                }}
+                awayTeam={{
+                  name: activeSameGame.awayTeam,
+                  shortCode: activeSameGame.awayShortCode,
+                  primaryColor: activeSameGame.awayColor,
+                  logoUrl: activeSameGame.awayLogoUrl,
+                }}
+                expectedGoalsHome={activeSameGame.expectedGoalsHome}
+                expectedGoalsAway={activeSameGame.expectedGoalsAway}
+                homeWinPct={activeSameGame.homeWinPct}
+                drawPct={activeSameGame.drawPct}
+                awayWinPct={activeSameGame.awayWinPct}
+                expectedCardsTotal={activeSameGame.expectedCardsTotal}
+                expectedCornersTotal={activeSameGame.expectedCornersTotal}
+                centerLabel={`λ ${activeSameGame.expectedGoalsHome.toFixed(1)} : ${activeSameGame.expectedGoalsAway.toFixed(1)}`}
+              />
+
               {/* Clean Hairline-Separated Same-Game Selections */}
               <div className="divide-y divide-slate-100 dark:divide-slate-800/90">
                 {activeSameGame.picks.map((pick, idx) => (
@@ -784,13 +829,13 @@ export const SuperCombinedTipCard: React.FC<SuperCombinedTipCardProps> = ({
           {/* Footer Action Bar (Always-Visible Responsive Buttons) */}
           <div className="px-4 sm:px-5 py-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/30 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="grid grid-cols-1 min-[440px]:grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full sm:w-auto">
                 {shareImagePayload && (
                   <button
                     type="button"
                     onClick={handleShareWhatsapp}
                     disabled={isGeneratingImage}
-                    className="flex-1 sm:flex-initial min-h-[44px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
+                    className="min-[440px]:col-span-2 sm:col-span-1 w-full sm:w-auto min-h-[44px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors text-center shrink-0 disabled:opacity-60"
                   >
                     {isGeneratingImage ? (
                       <Loader2 className="w-4 h-4 animate-spin shrink-0" />
@@ -806,7 +851,7 @@ export const SuperCombinedTipCard: React.FC<SuperCombinedTipCardProps> = ({
                     type="button"
                     onClick={() => onSaveToHistory(activePayload)}
                     disabled={isCurrentSaved}
-                    className={`flex-1 sm:flex-initial min-h-[44px] px-4 py-2 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 border ${
+                    className={`w-full sm:w-auto min-h-[44px] px-4 py-2 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 border ${
                       isCurrentSaved
                         ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/80'
                         : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 border-slate-200 dark:border-slate-700'
@@ -830,7 +875,7 @@ export const SuperCombinedTipCard: React.FC<SuperCombinedTipCardProps> = ({
                   <button
                     type="button"
                     onClick={onOpenHistory}
-                    className="flex-1 sm:flex-initial min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                    className="w-full sm:w-auto min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
                   >
                     <span>Acompanhar ao vivo</span>
                     <ArrowRight className="w-3.5 h-3.5 shrink-0" />
@@ -867,12 +912,12 @@ export const SuperCombinedTipCard: React.FC<SuperCombinedTipCardProps> = ({
                         {shareFeedback}
                       </p>
                     )}
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="grid grid-cols-1 min-[420px]:grid-cols-3 sm:flex sm:flex-wrap items-center gap-2">
                       <a
                         href={whatsappHref}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="min-h-[44px] px-3.5 py-2 rounded-lg bg-[#25D366] hover:bg-[#1ebe5d] text-slate-950 text-xs font-bold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                        className="min-h-[44px] px-3.5 py-2 rounded-lg bg-[#25D366] hover:bg-[#1ebe5d] text-slate-950 text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
                       >
                         <Share2 className="w-3.5 h-3.5 shrink-0" />
                         <span>Abrir WhatsApp</span>
@@ -882,7 +927,7 @@ export const SuperCombinedTipCard: React.FC<SuperCombinedTipCardProps> = ({
                         <a
                           href={generatedPreview.dataUrl}
                           download={generatedPreview.fileName}
-                          className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                          className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
                         >
                           <Download className="w-3.5 h-3.5 shrink-0" />
                           <span>Baixar PNG</span>
@@ -892,7 +937,7 @@ export const SuperCombinedTipCard: React.FC<SuperCombinedTipCardProps> = ({
                       <button
                         type="button"
                         onClick={handleCopyWhatsappText}
-                        className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                        className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
                       >
                         {copiedText ? (
                           <>

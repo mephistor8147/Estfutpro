@@ -1,5 +1,5 @@
 import { getFixturesService, resolveApiError } from '../src/lib/analyzeService.js';
-import type { ChampionshipScope } from '../src/types/football.js';
+import type { ChampionshipScope, SearchPreferences } from '../src/types/football.js';
 import { readJsonBody, sendJson, type VercelReq, type VercelRes } from './_http.js';
 
 export default async function handler(req: VercelReq, res: VercelRes) {
@@ -16,11 +16,13 @@ export default async function handler(req: VercelReq, res: VercelRes) {
     const body = await readJsonBody<{
       scope?: ChampionshipScope;
       forceRefresh?: boolean;
+      searchPreferences?: Partial<SearchPreferences>;
     }>(req);
 
     const result = await getFixturesService({
       scope: body?.scope || 'brasil',
       forceRefresh: Boolean(body?.forceRefresh),
+      searchPreferences: body?.searchPreferences,
     });
 
     res.setHeader('Cache-Control', 'no-store');

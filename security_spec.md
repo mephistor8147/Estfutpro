@@ -7,6 +7,7 @@
 4. **Bounded Arrays & Valid Enums**: `MultipleSlip.legs` must be a non-empty list with size between 1 and 20, and `legs[0]` must be a map. Enums (`theme`, `championshipScope`, `updateMode`, `dayFilter`, `status`, `source`) are strictly allowlisted.
 5. **Server Timestamp Integrity & Immutability**: `createdAt` must equal `request.time` on creation and remain immutable on update. `updatedAt` must equal `request.time` on both creation and update. `ownerId` and `id` are immutable after creation.
 6. **Action-Based Updates & Zero Ghost Fields**: Every `create` enforces `hasAll` + `hasOnly`, and every `update` runs `isValid[Entity](incoming())` plus action-specific `affectedKeys().hasOnly([...])`.
+7. **Admin Governance & Role Escalation Prevention**: Admin privileges are verified exclusively via verified token email (`l2xbrasil@gmail.com`) or explicit existence of `/admins/{uid}` (never custom claims like `token.role`). Regular users creating `/userAccounts/{uid}` must have `role == 'user'` and `status == 'active'`, and owners cannot self-modify `role` or `status` on update. Global `/appConfig/global` writes and `/userAccounts` directory listing are restricted to admins.
 
 ## Dirty Dozen Adversarial Payloads (Expected: `PERMISSION_DENIED`)
 1. **Unauthenticated Write**: Writing `/users/user123/analyses/a1` with `request.auth == null`.
@@ -21,3 +22,6 @@
 10. **Immutable Field Tampering**: Updating `PredictionAnalysis` while changing `ownerId`, `id`, or `createdAt`.
 11. **Invalid Enum Poisoning**: Updating `MultipleSlip` with `status: "hacked"` instead of `pending | won | lost`.
 12. **PII Blanket Probe**: User `uidA` attempting `get` on `/users/uidB/private/profile`.
+13. **Role Self-Escalation**: Non-admin user creating or updating `/userAccounts/{uid}` with `role: "admin"` or writing to `/admins/{uid}` or `/appConfig/global`.
+14. **Non-Admin User Directory Scrape**: Regular user attempting `list` on `/userAccounts`.
+

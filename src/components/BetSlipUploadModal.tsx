@@ -835,7 +835,7 @@ export const BetSlipUploadModal: React.FC<BetSlipUploadModalProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 min-[380px]:grid-cols-3 gap-2.5">
                 <div>
                   <label
                     htmlFor="slip-stake"
@@ -1097,7 +1097,7 @@ export const BetSlipUploadModal: React.FC<BetSlipUploadModalProps> = ({
         </div>
 
         {/* Sticky Footer */}
-        <div className="px-4 sm:px-5 py-3 border-t border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
+        <div className="px-4 sm:px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
           {showReview ? (
             <div className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
               {validLegsCount} {validLegsCount === 1 ? 'jogo válido' : 'jogos válidos'} · Odd{' '}

@@ -28,6 +28,7 @@ import {
 } from '../lib/shareMultipleImage.ts';
 import { BetSlipUploadModal } from './BetSlipUploadModal.tsx';
 import { CompetitionFlag } from './CompetitionFlag.tsx';
+import { MiniPitch } from './MiniPitch.tsx';
 import { TeamCrest } from './TeamCrest.tsx';
 import type {
   MultipleHistoryItem,
@@ -470,12 +471,12 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             <p className="text-xs font-medium text-slate-700 dark:text-slate-200">
               {activeShare.feedback}
             </p>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="grid grid-cols-1 min-[420px]:grid-cols-3 sm:flex sm:flex-wrap items-center gap-2">
               <a
                 href={activeShare.whatsappHref}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="min-h-[44px] px-3.5 py-2 rounded-lg bg-[#25D366] hover:bg-[#1ebe5d] text-slate-950 text-xs font-bold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                className="min-h-[44px] px-3.5 py-2 rounded-lg bg-[#25D366] hover:bg-[#1ebe5d] text-slate-950 text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
               >
                 <Share2 className="w-3.5 h-3.5 shrink-0" />
                 <span>Abrir WhatsApp</span>
@@ -485,7 +486,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 <a
                   href={activeShare.dataUrl}
                   download={activeShare.fileName}
-                  className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                  className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
                 >
                   <Download className="w-3.5 h-3.5 shrink-0" />
                   <span>Baixar PNG</span>
@@ -497,7 +498,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 onClick={() =>
                   handleCopyShareText(itemId, activeShare.whatsappText)
                 }
-                className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                className="min-h-[44px] px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
               >
                 {isCopied ? (
                   <>
@@ -561,14 +562,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             role="tab"
             aria-selected={section === 'multiple'}
             onClick={() => setSection('multiple')}
-            className={`min-h-[44px] px-2.5 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap tabular-nums ${
+            className={`min-h-[44px] px-2 sm:px-4 py-2 rounded-lg text-[11px] min-[380px]:text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors min-w-0 tabular-nums ${
               section === 'multiple'
                 ? 'bg-emerald-700 dark:bg-emerald-600 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <Flame className="w-4 h-4 shrink-0" />
-            <span>Dicas e apostas ({multipleHistory.length})</span>
+            <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span className="truncate">Dicas e apostas ({multipleHistory.length})</span>
           </button>
 
           <button
@@ -576,14 +577,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             role="tab"
             aria-selected={section === 'analysis'}
             onClick={() => setSection('analysis')}
-            className={`min-h-[44px] px-2.5 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap tabular-nums ${
+            className={`min-h-[44px] px-2 sm:px-4 py-2 rounded-lg text-[11px] min-[380px]:text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors min-w-0 tabular-nums ${
               section === 'analysis'
                 ? 'bg-emerald-700 dark:bg-emerald-600 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <BarChart3 className="w-4 h-4 shrink-0" />
-            <span>Análises 1X2 ({history.length})</span>
+            <BarChart3 className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span className="truncate">Análises 1X2 ({history.length})</span>
           </button>
         </div>
 
@@ -866,7 +867,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     </div>
 
                     {/* Financial Simulation Summary Row */}
-                    <div className="grid grid-cols-3 gap-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/70 dark:border-slate-800 p-3 text-xs tabular-nums">
+                    <div className="grid grid-cols-1 min-[360px]:grid-cols-3 gap-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/70 dark:border-slate-800 p-3 text-xs tabular-nums">
                       <div>
                         <div className="text-[11px] text-slate-500 dark:text-slate-400">
                           {item.source === 'image' ? 'Valor apostado' : 'Valor simulado'}
@@ -980,6 +981,35 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                                   </span>
                                 )}
                               </div>
+
+                              {/* Mini Campo da Partida */}
+                              <MiniPitch
+                                variant="compact"
+                                homeTeam={{
+                                  name: leg.homeTeam,
+                                  shortCode: leg.homeShortCode,
+                                  primaryColor: leg.homeColor,
+                                  logoUrl: leg.homeLogoUrl,
+                                }}
+                                awayTeam={{
+                                  name: leg.awayTeam,
+                                  shortCode: leg.awayShortCode,
+                                  primaryColor: leg.awayColor,
+                                  logoUrl: leg.awayLogoUrl,
+                                }}
+                                expectedGoalsHome={
+                                  leg.expectedGoalsHome > 0 || leg.expectedGoalsAway > 0
+                                    ? leg.expectedGoalsHome
+                                    : null
+                                }
+                                expectedGoalsAway={
+                                  leg.expectedGoalsHome > 0 || leg.expectedGoalsAway > 0
+                                    ? leg.expectedGoalsAway
+                                    : null
+                                }
+                                score={displayScore}
+                                isLive={isLive}
+                              />
 
                               {/* 2-Row Team Scoreboard */}
                               <div className="space-y-1.5">
@@ -1109,12 +1139,12 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     </div>
 
                     {/* Whole-Slip Actions */}
-                    <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-1.5 flex-1">
+                    <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="grid grid-cols-2 min-[420px]:flex min-[420px]:flex-wrap items-center gap-1.5 w-full sm:w-auto flex-1">
                         <button
                           type="button"
                           onClick={() => onResolveMultipleTip(item.id, 'won')}
-                          className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors whitespace-nowrap ${
+                          className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold border inline-flex items-center justify-center transition-colors whitespace-nowrap ${
                             item.status === 'won'
                               ? 'border-emerald-700 bg-emerald-700 text-white'
                               : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
@@ -1125,7 +1155,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                         <button
                           type="button"
                           onClick={() => onResolveMultipleTip(item.id, 'lost')}
-                          className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors whitespace-nowrap ${
+                          className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold border inline-flex items-center justify-center transition-colors whitespace-nowrap ${
                             item.status === 'lost'
                               ? 'border-rose-700 bg-rose-700 text-white'
                               : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-rose-50 dark:hover:bg-rose-950/40'
@@ -1137,19 +1167,19 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                           <button
                             type="button"
                             onClick={() => onResolveMultipleTip(item.id, 'pending')}
-                            className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors whitespace-nowrap"
+                            className="col-span-2 min-[420px]:col-span-1 min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 inline-flex items-center justify-center transition-colors whitespace-nowrap"
                           >
                             Reabrir
                           </button>
                         )}
                       </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="flex items-center gap-1.5 w-full sm:w-auto shrink-0">
                         <button
                           type="button"
                           onClick={() => handleShareMultipleResult(item)}
                           disabled={generatingShareId === item.id}
-                          className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
+                          className="flex-1 sm:flex-initial min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
                         >
                           {generatingShareId === item.id ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
@@ -1412,6 +1442,20 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                         ) : null}
                       </div>
 
+                      {/* Mini Campo da Análise */}
+                      <MiniPitch
+                        variant="compact"
+                        homeTeam={item.homeTeam}
+                        awayTeam={item.awayTeam}
+                        expectedGoalsHome={item.expectedGoalsHome}
+                        expectedGoalsAway={item.expectedGoalsAway}
+                        homeWinPct={item.predictedHomePct}
+                        drawPct={item.predictedDrawPct}
+                        awayWinPct={item.predictedAwayPct}
+                        score={shownScore}
+                        isLive={isLive}
+                      />
+
                       {/* 2-Row Team Scoreboard for 1X2 Analysis */}
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between gap-2 min-w-0">
@@ -1542,12 +1586,12 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       </div>
                     ) : (
                       <>
-                        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex flex-wrap items-center gap-2">
+                        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                             <button
                               type="button"
                               onClick={() => startEdit(item)}
-                              className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 inline-flex items-center gap-1.5 whitespace-nowrap"
+                              className="flex-1 sm:flex-initial min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 inline-flex items-center justify-center gap-1.5 whitespace-nowrap"
                             >
                               <Edit3 className="w-3.5 h-3.5 shrink-0" />
                               <span>
@@ -1559,19 +1603,19 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onLoadSnapshot(item)}
-                                className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200/80 dark:border-emerald-800 whitespace-nowrap"
+                                className="flex-1 sm:flex-initial min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200/80 dark:border-emerald-800 inline-flex items-center justify-center whitespace-nowrap"
                               >
                                 Abrir análise
                               </button>
                             )}
                           </div>
 
-                          <div className="flex items-center gap-1.5 shrink-0">
+                          <div className="flex items-center gap-1.5 w-full sm:w-auto shrink-0">
                             <button
                               type="button"
                               onClick={() => handleShareAnalysisResult(item)}
                               disabled={generatingShareId === item.id}
-                              className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
+                              className="flex-1 sm:flex-initial min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
                             >
                               {generatingShareId === item.id ? (
                                 <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
@@ -1585,7 +1629,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                               type="button"
                               onClick={() => onDeleteItem(item.id)}
                               aria-label="Excluir previsão"
-                              className="min-h-[44px] min-w-[44px] rounded-xl text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center justify-center transition-colors"
+                              className="min-h-[44px] min-w-[44px] rounded-xl text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center justify-center transition-colors shrink-0"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>

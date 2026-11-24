@@ -81,6 +81,14 @@
           "type": "number",
           "description": "Fator de mando de campo entre 1.00 e 1.25."
         },
+        "searchPreferences": {
+          "type": "object",
+          "description": "Preferências de pesquisa de jogos (janela temporal, ao vivo, ordenação e ligas favoritas)."
+        },
+        "notifications": {
+          "type": "object",
+          "description": "Ajustes de notificações no app, navegador e alertas sonoros."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -342,6 +350,128 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "AppGlobalConfig": {
+      "title": "Configuração Global do Aplicativo",
+      "description": "Parâmetros globais administráveis do CampoStats (manutenção, banner, margem de odds, defaults).",
+      "type": "object",
+      "properties": {
+        "appName": { "type": "string", "maxLength": 80 },
+        "announcementBanner": { "type": "string", "maxLength": 280 },
+        "maintenanceMode": { "type": "boolean" },
+        "bettingMenuEnabled": { "type": "boolean" },
+        "defaultChampionshipScope": {
+          "type": "string",
+          "enum": ["brasil", "principais", "todos"],
+          "maxLength": 20
+        },
+        "defaultMultipleCount": { "type": "number" },
+        "defaultSearchWindow": {
+          "type": "string",
+          "enum": ["today", "48h", "week"],
+          "maxLength": 20
+        },
+        "oddsMarginPct": { "type": "number" },
+        "minTipProbabilityPct": { "type": "number" },
+        "updatedByUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "updatedByEmail": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 254
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "appName",
+        "announcementBanner",
+        "maintenanceMode",
+        "bettingMenuEnabled",
+        "defaultChampionshipScope",
+        "defaultMultipleCount",
+        "defaultSearchWindow",
+        "oddsMarginPct",
+        "minTipProbabilityPct",
+        "updatedByUid",
+        "updatedByEmail",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserAccountRecord": {
+      "title": "Registro Administrativo de Conta",
+      "description": "Resumo de conta de usuário para painel administrativo (papel, status e contadores).",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 254
+        },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "photoURL": { "type": "string", "maxLength": 512 },
+        "role": {
+          "type": "string",
+          "enum": ["user", "admin"],
+          "maxLength": 16
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "blocked"],
+          "maxLength": 16
+        },
+        "analysesCount": { "type": "integer" },
+        "multiplesCount": { "type": "integer" },
+        "lastLoginAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId",
+        "email",
+        "displayName",
+        "role",
+        "status",
+        "analysesCount",
+        "multiplesCount",
+        "lastLoginAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminGrant": {
+      "title": "Permissão de Administrador",
+      "description": "Registro explícito de administradores autorizados.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 254
+        },
+        "grantedByUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "grantedByUid", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -360,6 +490,18 @@
     "/users/{userId}/multiples/{multipleId}": {
       "schema": { "$ref": "#/entities/MultipleSlip" },
       "description": "Histórico de múltiplas, super dicas combinadas e bilhetes importados por usuário."
+    },
+    "/appConfig/{configId}": {
+      "schema": { "$ref": "#/entities/AppGlobalConfig" },
+      "description": "Configuração global do aplicativo controlada pelos administradores."
+    },
+    "/userAccounts/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccountRecord" },
+      "description": "Diretório de contas de usuários gerenciado no painel administrativo."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminGrant" },
+      "description": "Permissões explícitas de administradores do aplicativo."
     }
   }
 }

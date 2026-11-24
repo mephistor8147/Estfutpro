@@ -2,6 +2,7 @@ import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 import type {
   AnalysisResponsePayload,
   ChampionshipScope,
+  DailyBetsResponse,
   GroundingSource,
   LiveScoreMatchResult,
   LiveScoreQueryItem,
@@ -12,6 +13,7 @@ import type {
   MultipleTipStatus,
   ParsedBetSlipLeg,
   ParsedBetSlipResponse,
+  SearchPreferences,
   SerieAMultipleTip,
   SuggestedFixture,
   SuperCombinedTip,
@@ -25,6 +27,7 @@ import {
   evaluateMultipleMarketOutcome,
   fetchEspnLiveFixtures,
   fetchLiveScoresViaEspn,
+  fetchTodayBettingMatchesViaEspn,
   type MultipleLegCheckInput,
   type MultipleLegCheckResult,
 } from './espnProvider.js';
@@ -34,11 +37,17 @@ import { MULTIPLE_COMPETITION_SET } from './competitions.js';
 const FIXTURES_TTL_MS = 30 * 60 * 1000;
 const ANALYSIS_TTL_MS = 15 * 60 * 1000;
 const MULTIPLE_TTL_MS = 30 * 60 * 1000;
+const DAILY_BETS_TTL_MS = 5 * 60 * 1000;
 const LIVE_SCORE_TTL_MS = 20 * 1000;
 
 const fixturesCache = new Map<
-  ChampionshipScope,
+  string,
   { fixtures: SuggestedFixture[]; updatedAt: string; expiresAt: number }
+>();
+
+const dailyBetsCache = new Map<
+  string,
+  { payload: DailyBetsResponse; expiresAt: number }
 >();
 
 const analysisCache = new Map<
@@ -507,10 +516,16 @@ export function resolveApiError(error: any, fallbackMessage: string): { status: 
 export async function getFixturesService(params: {
   scope?: ChampionshipScope;
   forceRefresh?: boolean;
+  searchPreferences?: Partial<SearchPreferences>;
 }): Promise<{ fixtures: SuggestedFixture[]; updatedAt: string; cached?: boolean }> {
   const scope = params.scope || 'brasil';
   const forceRefresh = Boolean(params.forceRefresh);
-  const cached = fixturesCache.get(scope);
+  const prefs = params.searchPreferences;
+  const favKey = Array.isArray(prefs?.favoriteLeagues)
+    ? prefs.favoriteLeagues.slice(0, 12).join(',')
+    : '';
+  const cacheKey = `${scope}:${prefs?.window || 'week'}:${prefs?.includeLiveMatches !== false ? '1' : '0'}:${prefs?.sortBy || 'time'}:${favKey}`;
+  const cached = fixturesCache.get(cacheKey);
 
   if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
     return {
@@ -520,10 +535,10 @@ export async function getFixturesService(params: {
     };
   }
 
-  const espnFixtures = await fetchEspnLiveFixtures(scope);
+  const espnFixtures = await fetchEspnLiveFixtures(scope, prefs);
   if (espnFixtures.length > 0) {
     const updatedAt = new Date().toISOString();
-    fixturesCache.set(scope, {
+    fixturesCache.set(cacheKey, {
       fixtures: espnFixtures,
       updatedAt,
       expiresAt: Date.now() + FIXTURES_TTL_MS,
@@ -572,13 +587,46 @@ Não invente confrontos.`;
   const fixtures = (parsed.fixtures || []).slice(0, 6);
   const updatedAt = new Date().toISOString();
 
-  fixturesCache.set(scope, {
+  fixturesCache.set(cacheKey, {
     fixtures,
     updatedAt,
     expiresAt: Date.now() + FIXTURES_TTL_MS,
   });
 
   return { fixtures, updatedAt };
+}
+
+export async function getDailyBettingMatchesService(params?: {
+  forceRefresh?: boolean;
+  oddsMarginPct?: number;
+  includeLive?: boolean;
+  favoriteLeagues?: string[];
+}): Promise<DailyBetsResponse> {
+  const forceRefresh = Boolean(params?.forceRefresh);
+  const oddsMarginPct = Math.max(0, Math.min(20, Number(params?.oddsMarginPct ?? 5)));
+  const includeLive = params?.includeLive !== false;
+  const favoriteLeagues = Array.isArray(params?.favoriteLeagues)
+    ? params.favoriteLeagues.slice(0, 12)
+    : [];
+
+  const cacheKey = `${oddsMarginPct}:${includeLive ? '1' : '0'}:${favoriteLeagues.join(',')}`;
+  const cached = dailyBetsCache.get(cacheKey);
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
+    return cached.payload;
+  }
+
+  const payload = await fetchTodayBettingMatchesViaEspn({
+    oddsMarginPct,
+    includeLive,
+    favoriteLeagues,
+  });
+
+  dailyBetsCache.set(cacheKey, {
+    payload,
+    expiresAt: Date.now() + DAILY_BETS_TTL_MS,
+  });
+
+  return payload;
 }
 
 export async function analyzeMatchService(params: {
