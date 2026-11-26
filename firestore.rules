@@ -16,8 +16,17 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
+    function isBootstrappedAdminEmailValue(email) {
+      return email is string
+        && (email == 'l2xbrasil@gmail.com'
+          || email == 'L2xbrasil@gmail.com'
+          || email.matches('^[lL]2[xX][bB][rR][aA][sS][iI][lL]@[gG][mM][aA][iI][lL]\\.[cC][oO][mM]$'));
+    }
+
     function isBootstrappedAdmin() {
-      return isVerifiedUser() && request.auth.token.email == 'l2xbrasil@gmail.com';
+      return isVerifiedUser()
+        && ('email' in request.auth.token)
+        && isBootstrappedAdminEmailValue(request.auth.token.email);
     }
 
     function isAdmin() {
@@ -440,8 +449,8 @@ service cloud.firestore {
 
     // 3. Saved 1X2 Analyses
     match /users/{userId}/analyses/{analysisId} {
-      allow get: if isValidId(userId) && isValidId(analysisId) && isOwner(userId);
-      allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+      allow get: if isValidId(userId) && isValidId(analysisId) && (isOwner(userId) || isAdmin());
+      allow list: if (isOwner(userId) && existing().ownerId == request.auth.uid) || isAdmin();
       allow create: if isValidId(userId)
         && isValidId(analysisId)
         && isOwner(userId)
@@ -462,8 +471,8 @@ service cloud.firestore {
 
     // 4. Saved Multiple Slips / Hot Tips / Imported Bet Slips
     match /users/{userId}/multiples/{multipleId} {
-      allow get: if isValidId(userId) && isValidId(multipleId) && isOwner(userId);
-      allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+      allow get: if isValidId(userId) && isValidId(multipleId) && (isOwner(userId) || isAdmin());
+      allow list: if (isOwner(userId) && existing().ownerId == request.auth.uid) || isAdmin();
       allow create: if isValidId(userId)
         && isValidId(multipleId)
         && isOwner(userId)
@@ -551,16 +560,22 @@ service cloud.firestore {
               'status',
               'displayName',
               'updatedAt'
-            ]))
+            ])
+            && (!('email' in existing())
+              || !isBootstrappedAdminEmailValue(existing().email)
+              || (incoming().role == 'admin' && incoming().status == 'active')))
         );
-      allow delete: if isValidId(userId) && isAdmin() && userId != request.auth.uid;
+      allow delete: if isValidId(userId)
+        && isAdmin()
+        && userId != request.auth.uid
+        && (!('email' in existing()) || !isBootstrappedAdminEmailValue(existing().email));
     }
 
     // 7. Explicit Admin Grants
     match /admins/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
       allow create: if isValidId(userId)
-        && isAdmin()
+        && (isAdmin() || (isOwner(userId) && isBootstrappedAdmin()))
         && isValidAdminGrant(incoming(), userId)
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
@@ -571,7 +586,10 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'grantedByUid', 'updatedAt']);
-      allow delete: if isValidId(userId) && isAdmin() && userId != request.auth.uid;
+      allow delete: if isValidId(userId)
+        && isAdmin()
+        && userId != request.auth.uid
+        && (!('email' in existing()) || !isBootstrappedAdminEmailValue(existing().email));
     }
   }
 }

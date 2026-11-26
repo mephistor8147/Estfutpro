@@ -1,4 +1,4 @@
-import type { User } from 'firebase/auth';
+import { updateProfile, type User } from 'firebase/auth';
 import {
   collection,
   deleteDoc,
@@ -126,11 +126,15 @@ export async function upsertUserProfile(user: User): Promise<void> {
 
   try {
     const snap = await getDoc(ref);
+    const existingName = snap.exists() ? snap.data()?.displayName : undefined;
     const updatePayload: Record<string, unknown> = {
       email: clampStr(user.email, 254),
       updatedAt: serverTimestamp(),
     };
-    if (user.displayName) {
+    if (
+      (!existingName || typeof existingName !== 'string' || !existingName.trim()) &&
+      user.displayName
+    ) {
       updatePayload.displayName = clampStr(user.displayName, 120);
     }
     if (user.photoURL) {
@@ -142,6 +146,7 @@ export async function upsertUserProfile(user: User): Promise<void> {
     } else {
       await setDoc(ref, {
         ownerId: user.uid,
+        ...(user.displayName ? { displayName: clampStr(user.displayName, 120) } : {}),
         ...updatePayload,
         createdAt: serverTimestamp(),
       });
@@ -149,6 +154,98 @@ export async function upsertUserProfile(user: User): Promise<void> {
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
+}
+
+export function getUserPrimaryEmail(user: User | null): string | null {
+  if (!user) return null;
+  if (user.email && user.email.trim()) return user.email.trim();
+  const providerEmail = user.providerData?.find((p) => p?.email?.trim())?.email;
+  return providerEmail ? providerEmail.trim() : null;
+}
+
+export async function updateUserDisplayName(
+  user: User,
+  nextDisplayName: string
+): Promise<string> {
+  const userEmail = getUserPrimaryEmail(user);
+  if (!user.uid || !userEmail || !user.emailVerified) {
+    throw new Error('Entre com uma conta Google verificada para atualizar seu perfil.');
+  }
+  const cleaned = clampStr(nextDisplayName, 120);
+  if (cleaned.length < 2) {
+    throw new Error('Informe um nome com pelo menos 2 caracteres.');
+  }
+
+  try {
+    await updateProfile(user, { displayName: cleaned });
+  } catch {
+    // Non-fatal if Firebase Auth profile update is skipped; Firestore remains source of truth
+  }
+
+  const profilePath = `users/${user.uid}/private/profile`;
+  const profileRef = doc(db, 'users', user.uid, 'private', 'profile');
+  try {
+    const profileSnap = await getDoc(profileRef);
+    if (profileSnap.exists()) {
+      await updateDoc(profileRef, {
+        displayName: cleaned,
+        email: clampStr(userEmail, 254),
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await setDoc(profileRef, {
+        ownerId: user.uid,
+        email: clampStr(userEmail, 254),
+        displayName: cleaned,
+        ...(user.photoURL ? { photoURL: clampStr(user.photoURL, 512) } : {}),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, profilePath);
+  }
+
+  const accountPath = `userAccounts/${user.uid}`;
+  const accountRef = doc(db, 'userAccounts', user.uid);
+  const bootstrappedAdmin = isBootstrappedAdminEmail(userEmail);
+  try {
+    const accSnap = await getDoc(accountRef);
+    if (accSnap.exists()) {
+      await updateDoc(accountRef, {
+        displayName: cleaned,
+        updatedAt: serverTimestamp(),
+      });
+      if (
+        bootstrappedAdmin &&
+        (accSnap.data()?.role !== 'admin' || accSnap.data()?.status !== 'active')
+      ) {
+        await updateDoc(accountRef, {
+          role: 'admin',
+          status: 'active',
+          updatedAt: serverTimestamp(),
+        });
+      }
+    } else {
+      await setDoc(accountRef, {
+        ownerId: user.uid,
+        email: clampStr(userEmail, 254),
+        displayName: cleaned,
+        role: bootstrappedAdmin ? 'admin' : 'user',
+        status: 'active',
+        analysesCount: 0,
+        multiplesCount: 0,
+        lastLoginAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        ...(user.photoURL ? { photoURL: clampStr(user.photoURL, 512) } : {}),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, accountPath);
+  }
+
+  return cleaned;
 }
 
 export interface SyncedPreferences {
@@ -359,6 +456,31 @@ function buildAnalysisCreateDoc(uid: string, item: PredictionHistoryItem) {
   return { docId, docData: rawDoc };
 }
 
+function mapAnalysisSnap(
+  id: string,
+  d: Record<string, any>
+): PredictionHistoryItem {
+  return {
+    id,
+    createdAt: toIsoString(d.savedAtIso || d.createdAt),
+    updatedAt: toIsoString(d.updatedAtIso || d.updatedAt),
+    competition: String(d.competition || ''),
+    homeTeam: d.homeTeam,
+    awayTeam: d.awayTeam,
+    predictedHomePct: Number(d.predictedHomePct ?? 0),
+    predictedDrawPct: Number(d.predictedDrawPct ?? 0),
+    predictedAwayPct: Number(d.predictedAwayPct ?? 0),
+    expectedGoalsHome: Number(d.expectedGoalsHome ?? 0),
+    expectedGoalsAway: Number(d.expectedGoalsAway ?? 0),
+    mostLikelyScore: String(d.mostLikelyScore || '1 x 1'),
+    over25Pct: Number(d.over25Pct ?? 0),
+    bttsPct: Number(d.bttsPct ?? 0),
+    liveScore: d.liveScore,
+    actualScore: d.actualScore,
+    snapshot: d.snapshot,
+  };
+}
+
 export function subscribeUserAnalyses(
   uid: string,
   onData: (items: PredictionHistoryItem[]) => void,
@@ -373,28 +495,9 @@ export function subscribeUserAnalyses(
   return onSnapshot(
     q,
     (snapshot) => {
-      const items: PredictionHistoryItem[] = snapshot.docs.map((docSnap) => {
-        const d = docSnap.data();
-        return {
-          id: docSnap.id,
-          createdAt: toIsoString(d.savedAtIso || d.createdAt),
-          updatedAt: toIsoString(d.updatedAtIso || d.updatedAt),
-          competition: String(d.competition || ''),
-          homeTeam: d.homeTeam,
-          awayTeam: d.awayTeam,
-          predictedHomePct: Number(d.predictedHomePct ?? 0),
-          predictedDrawPct: Number(d.predictedDrawPct ?? 0),
-          predictedAwayPct: Number(d.predictedAwayPct ?? 0),
-          expectedGoalsHome: Number(d.expectedGoalsHome ?? 0),
-          expectedGoalsAway: Number(d.expectedGoalsAway ?? 0),
-          mostLikelyScore: String(d.mostLikelyScore || '1 x 1'),
-          over25Pct: Number(d.over25Pct ?? 0),
-          bttsPct: Number(d.bttsPct ?? 0),
-          liveScore: d.liveScore,
-          actualScore: d.actualScore,
-          snapshot: d.snapshot,
-        };
-      });
+      const items: PredictionHistoryItem[] = snapshot.docs.map((docSnap) =>
+        mapAnalysisSnap(docSnap.id, docSnap.data())
+      );
       items.sort(
         (a, b) =>
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -529,6 +632,33 @@ function buildMultipleCreateDoc(uid: string, item: MultipleHistoryItem) {
   return { docId, docData: rawDoc };
 }
 
+function mapMultipleSnap(
+  id: string,
+  d: Record<string, any>
+): MultipleHistoryItem {
+  return {
+    id,
+    tipSignature: String(d.tipSignature || id),
+    createdAt: toIsoString(d.savedAtIso || d.createdAt),
+    competition: String(d.competition || ''),
+    leagueSlug: String(d.leagueSlug || 'world'),
+    dayFilter:
+      d.dayFilter === 'today' || d.dayFilter === 'tomorrow'
+        ? d.dayFilter
+        : 'all',
+    legs: Array.isArray(d.legs) ? d.legs : [],
+    combinedProbabilityPct: Number(d.combinedProbabilityPct ?? 0),
+    totalOdd: Number(d.totalOdd ?? 1),
+    stake: Number(d.stake ?? 0),
+    potentialReturn: Number(d.potentialReturn ?? 0),
+    status: d.status === 'won' || d.status === 'lost' ? d.status : 'pending',
+    source: d.source === 'tip' || d.source === 'image' ? d.source : undefined,
+    bookmaker: d.bookmaker ? String(d.bookmaker) : undefined,
+    notes: d.notes ? String(d.notes) : undefined,
+    resolvedAt: d.resolvedAt ? String(d.resolvedAt) : undefined,
+  };
+}
+
 export function subscribeUserMultiples(
   uid: string,
   onData: (items: MultipleHistoryItem[]) => void,
@@ -543,32 +673,9 @@ export function subscribeUserMultiples(
   return onSnapshot(
     q,
     (snapshot) => {
-      const items: MultipleHistoryItem[] = snapshot.docs.map((docSnap) => {
-        const d = docSnap.data();
-        return {
-          id: docSnap.id,
-          tipSignature: String(d.tipSignature || docSnap.id),
-          createdAt: toIsoString(d.savedAtIso || d.createdAt),
-          competition: String(d.competition || ''),
-          leagueSlug: String(d.leagueSlug || 'world'),
-          dayFilter:
-            d.dayFilter === 'today' || d.dayFilter === 'tomorrow'
-              ? d.dayFilter
-              : 'all',
-          legs: Array.isArray(d.legs) ? d.legs : [],
-          combinedProbabilityPct: Number(d.combinedProbabilityPct ?? 0),
-          totalOdd: Number(d.totalOdd ?? 1),
-          stake: Number(d.stake ?? 0),
-          potentialReturn: Number(d.potentialReturn ?? 0),
-          status:
-            d.status === 'won' || d.status === 'lost' ? d.status : 'pending',
-          source:
-            d.source === 'tip' || d.source === 'image' ? d.source : undefined,
-          bookmaker: d.bookmaker ? String(d.bookmaker) : undefined,
-          notes: d.notes ? String(d.notes) : undefined,
-          resolvedAt: d.resolvedAt ? String(d.resolvedAt) : undefined,
-        };
-      });
+      const items: MultipleHistoryItem[] = snapshot.docs.map((docSnap) =>
+        mapMultipleSnap(docSnap.id, docSnap.data())
+      );
       items.sort(
         (a, b) =>
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -715,9 +822,39 @@ export function isBootstrappedAdminEmail(email?: string | null): boolean {
   return Boolean(email && email.trim().toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL);
 }
 
+export async function ensureBootstrappedAdminGrant(user: User | null): Promise<void> {
+  const email = getUserPrimaryEmail(user);
+  if (!user || !user.uid || !user.emailVerified || !isBootstrappedAdminEmail(email)) {
+    return;
+  }
+  const path = `admins/${user.uid}`;
+  const adminRef = doc(db, 'admins', user.uid);
+  let exists = false;
+  try {
+    const adminSnap = await getDoc(adminRef);
+    exists = adminSnap.exists();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, path);
+  }
+
+  if (!exists) {
+    try {
+      await setDoc(adminRef, {
+        uid: user.uid,
+        email: clampStr(email, 254),
+        grantedByUid: user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  }
+}
+
 export async function checkUserIsAdmin(user: User | null): Promise<boolean> {
   if (!user || !user.emailVerified) return false;
-  if (isBootstrappedAdminEmail(user.email)) return true;
+  if (isBootstrappedAdminEmail(getUserPrimaryEmail(user))) return true;
   try {
     const adminSnap = await getDoc(doc(db, 'admins', user.uid));
     return adminSnap.exists();
@@ -830,23 +967,31 @@ export async function upsertUserAccountRecord(
   user: User,
   stats: { analysesCount: number; multiplesCount: number }
 ): Promise<void> {
-  if (!user.uid || !user.email || !user.emailVerified) return;
+  const rawEmail = getUserPrimaryEmail(user);
+  if (!user.uid || !rawEmail || !user.emailVerified) return;
   const path = `userAccounts/${user.uid}`;
   const ref = doc(db, 'userAccounts', user.uid);
   const displayName = clampStr(
-    user.displayName || user.email.split('@')[0] || 'Usuário',
+    user.displayName || rawEmail.split('@')[0] || 'Usuário',
     120,
     'Usuário'
   );
-  const email = clampStr(user.email, 254);
+  const email = clampStr(rawEmail, 254);
+  const bootstrappedAdmin = isBootstrappedAdminEmail(rawEmail);
   const analysesCount = Math.max(0, Math.min(100000, Math.floor(stats.analysesCount)));
   const multiplesCount = Math.max(0, Math.min(100000, Math.floor(stats.multiplesCount)));
 
   try {
     const snap = await getDoc(ref);
     if (snap.exists()) {
+      const existingData = snap.data();
+      const existingName = existingData?.displayName;
+      const resolvedName =
+        typeof existingName === 'string' && existingName.trim()
+          ? clampStr(existingName, 120)
+          : displayName;
       const updatePayload: Record<string, unknown> = {
-        displayName,
+        displayName: resolvedName,
         email,
         analysesCount,
         multiplesCount,
@@ -857,12 +1002,23 @@ export async function upsertUserAccountRecord(
         updatePayload.photoURL = clampStr(user.photoURL, 512);
       }
       await updateDoc(ref, updatePayload);
+
+      if (
+        bootstrappedAdmin &&
+        (existingData?.role !== 'admin' || existingData?.status !== 'active')
+      ) {
+        await updateDoc(ref, {
+          role: 'admin',
+          status: 'active',
+          updatedAt: serverTimestamp(),
+        });
+      }
     } else {
       const createPayload: Record<string, unknown> = {
         ownerId: user.uid,
         email,
         displayName,
-        role: isBootstrappedAdminEmail(user.email) ? 'admin' : 'user',
+        role: bootstrappedAdmin ? 'admin' : 'user',
         status: 'active',
         analysesCount,
         multiplesCount,
@@ -1014,4 +1170,47 @@ export async function adminUpdateUserAccount(
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
+}
+
+export async function fetchUserHistoryForAdmin(
+  targetUid: string
+): Promise<{
+  analyses: PredictionHistoryItem[];
+  multiples: MultipleHistoryItem[];
+}> {
+  const safeUid = sanitizeDocId(targetUid);
+  const analysesPath = `users/${safeUid}/analyses`;
+  const multiplesPath = `users/${safeUid}/multiples`;
+
+  let analyses: PredictionHistoryItem[] = [];
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'users', safeUid, 'analyses'), where('ownerId', '==', safeUid))
+    );
+    analyses = snap.docs
+      .map((d) => mapAnalysisSnap(d.id, d.data()))
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, analysesPath);
+  }
+
+  let multiples: MultipleHistoryItem[] = [];
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'users', safeUid, 'multiples'), where('ownerId', '==', safeUid))
+    );
+    multiples = snap.docs
+      .map((d) => mapMultipleSnap(d.id, d.data()))
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, multiplesPath);
+  }
+
+  return { analyses, multiples };
 }

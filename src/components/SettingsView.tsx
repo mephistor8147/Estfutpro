@@ -41,6 +41,7 @@ interface SettingsViewProps {
   historyCount: number;
   multipleHistory: MultipleHistoryItem[];
   isSigningIn: boolean;
+  isSigningOut?: boolean;
   authError: string | null;
   onSignInGoogle: () => void;
   onSignOut: () => void;
@@ -48,6 +49,7 @@ interface SettingsViewProps {
   onUpdateSettings: (next: AppSettings) => void;
   onTestNotification: () => void;
   onOpenAdmin?: () => void;
+  onOpenProfile?: () => void;
   history?: PredictionHistoryItem[];
 }
 
@@ -64,6 +66,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   historyCount,
   multipleHistory,
   isSigningIn,
+  isSigningOut = false,
   authError,
   onSignInGoogle,
   onSignOut,
@@ -71,6 +74,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onUpdateSettings,
   onTestNotification,
   onOpenAdmin,
+  onOpenProfile,
 }) => {
   const [browserPerm, setBrowserPerm] = useState(getBrowserNotificationPermission);
 
@@ -223,7 +227,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words line-clamp-2 sm:truncate">
                 {authUser
-                  ? `${authUser.displayName || 'Usuário'} (${authUser.email || ''}) · Sincronização ativa no banco de dados.`
+                  ? `${userAccount?.displayName || authUser.displayName || 'Usuário'} (${authUser.email || ''}) · Sincronização ativa no banco de dados.`
                   : 'Entre com sua conta Google para salvar análises, bilhetes, alertas e preferências entre dispositivos.'}
               </p>
             </div>
@@ -240,15 +244,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span>Menu Admin</span>
               </button>
             )}
+            {authUser && !isAdmin && onOpenProfile && (
+              <button
+                type="button"
+                onClick={onOpenProfile}
+                className="flex-1 sm:flex-initial min-h-[44px] px-3.5 py-2 rounded-xl border border-emerald-600/40 dark:border-emerald-500/40 bg-emerald-50/70 dark:bg-emerald-950/50 hover:bg-emerald-100/70 dark:hover:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
+              >
+                <UserIcon className="w-3.5 h-3.5 shrink-0" />
+                <span>Menu Perfil</span>
+              </button>
+            )}
 
             {authUser ? (
               <button
                 type="button"
                 onClick={onSignOut}
-                className="flex-1 sm:flex-initial min-h-[44px] px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                disabled={isSigningOut}
+                className="flex-1 sm:flex-initial min-h-[44px] px-4 py-2 rounded-xl border border-rose-200 dark:border-rose-900/70 bg-rose-50/70 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-950/70 text-rose-700 dark:text-rose-300 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
               >
                 <LogOut className="w-3.5 h-3.5 shrink-0" />
-                <span>Sair da conta</span>
+                <span>{isSigningOut ? 'Saindo...' : 'Sair da conta'}</span>
               </button>
             ) : (
               <button

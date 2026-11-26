@@ -3,6 +3,7 @@ import { ExternalLink, AlertCircle, RotateCcw } from 'lucide-react';
 import { CompetitionFlag } from './CompetitionFlag.tsx';
 import { LastFiveGoalsChart } from './LastFiveGoalsChart.tsx';
 import { TeamCrest } from './TeamCrest.tsx';
+import { TeamPerformanceRadar } from './TeamPerformanceRadar.tsx';
 import type {
   AnalysisResponsePayload,
   AppSettings,
@@ -187,6 +188,9 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
               </div>
             </div>
           </section>
+
+          {/* Visual Performance Comparator (5-Attribute Radar Chart) */}
+          <TeamPerformanceRadar data={data} model={model} />
 
           {/* Breakdown + Interactive Contextual Sensitivity */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

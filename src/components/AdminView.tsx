@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
 import {
   Ban,
+  BookmarkCheck,
   CheckCircle2,
   Lock,
   LogIn,
+  LogOut,
   RotateCcw,
   Save,
   Search,
@@ -12,17 +14,21 @@ import {
   ShieldAlert,
   ShieldCheck,
   Users,
+  X,
 } from 'lucide-react';
 import type {
   AppGlobalConfig,
   ChampionshipScope,
   MatchSearchWindow,
+  MultipleHistoryItem,
+  PredictionHistoryItem,
   UserAccountRecord,
 } from '../types/football.ts';
 import {
   adminUpdateUserAccount,
   BOOTSTRAPPED_ADMIN_EMAIL,
   DEFAULT_APP_GLOBAL_CONFIG,
+  fetchUserHistoryForAdmin,
   isBootstrappedAdminEmail,
   saveAppGlobalConfig,
   subscribeAllUserAccounts,
@@ -32,8 +38,10 @@ interface AdminViewProps {
   authUser: User | null;
   isAdmin: boolean;
   isSigningIn: boolean;
+  isSigningOut?: boolean;
   globalConfig: AppGlobalConfig;
   onSignInGoogle: () => void;
+  onSignOut?: () => void;
 }
 
 type AdminSubTab = 'config' | 'users';
@@ -42,8 +50,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
   authUser,
   isAdmin,
   isSigningIn,
+  isSigningOut = false,
   globalConfig,
   onSignInGoogle,
+  onSignOut,
 }) => {
   const [subTab, setSubTab] = useState<AdminSubTab>('config');
   const [draftConfig, setDraftConfig] = useState<AppGlobalConfig>(globalConfig);
@@ -58,6 +68,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'user'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked'>('all');
   const [updatingUid, setUpdatingUid] = useState<string | null>(null);
+
+  const [historyTarget, setHistoryTarget] = useState<UserAccountRecord | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyData, setHistoryData] = useState<{
+    analyses: PredictionHistoryItem[];
+    multiples: MultipleHistoryItem[];
+  } | null>(null);
+  const [historyModalTab, setHistoryModalTab] = useState<'analyses' | 'multiples'>('analyses');
 
   useEffect(() => {
     setDraftConfig(globalConfig);
@@ -165,6 +184,25 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
+  const handleOpenUserHistory = async (target: UserAccountRecord) => {
+    if (!authUser || !isAdmin) return;
+    setHistoryTarget(target);
+    setHistoryModalTab('analyses');
+    setHistoryLoading(true);
+    setHistoryError(null);
+    setHistoryData(null);
+    try {
+      const res = await fetchUserHistoryForAdmin(target.uid);
+      setHistoryData(res);
+    } catch (err: any) {
+      setHistoryError(
+        err?.message || 'Não foi possível carregar o histórico salvo deste usuário.'
+      );
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   if (!authUser) {
     return (
       <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-6 sm:p-8 text-center max-w-xl mx-auto">
@@ -225,33 +263,47 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:inline-flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700 w-full sm:w-auto gap-1">
-            <button
-              type="button"
-              onClick={() => setSubTab('config')}
-              className={`min-h-[44px] px-2.5 sm:px-3.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
-                subTab === 'config'
-                  ? 'bg-white dark:bg-slate-950 text-slate-900 dark:text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              <Settings className="w-3.5 h-3.5 shrink-0" />
-              <span className="min-[440px]:hidden">Configurações</span>
-              <span className="hidden min-[440px]:inline">Configurações globais</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSubTab('users')}
-              className={`min-h-[44px] px-2.5 sm:px-3.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
-                subTab === 'users'
-                  ? 'bg-white dark:bg-slate-950 text-slate-900 dark:text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5 shrink-0" />
-              <span className="min-[440px]:hidden">Usuários ({users.length})</span>
-              <span className="hidden min-[440px]:inline">Painel de usuários ({users.length})</span>
-            </button>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+            <div className="grid grid-cols-2 sm:inline-flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700 w-full sm:w-auto gap-1">
+              <button
+                type="button"
+                onClick={() => setSubTab('config')}
+                className={`min-h-[44px] px-2.5 sm:px-3.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
+                  subTab === 'config'
+                    ? 'bg-white dark:bg-slate-950 text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <Settings className="w-3.5 h-3.5 shrink-0" />
+                <span className="min-[440px]:hidden">Configurações</span>
+                <span className="hidden min-[440px]:inline">Configurações globais</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSubTab('users')}
+                className={`min-h-[44px] px-2.5 sm:px-3.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
+                  subTab === 'users'
+                    ? 'bg-white dark:bg-slate-950 text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5 shrink-0" />
+                <span className="min-[440px]:hidden">Usuários ({users.length})</span>
+                <span className="hidden min-[440px]:inline">Painel de usuários ({users.length})</span>
+              </button>
+            </div>
+
+            {onSignOut && (
+              <button
+                type="button"
+                onClick={onSignOut}
+                disabled={isSigningOut}
+                className="w-full sm:w-auto min-h-[44px] px-3.5 py-2 rounded-xl border border-rose-200 dark:border-rose-900/70 bg-rose-50/70 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-950/70 text-rose-700 dark:text-rose-300 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60"
+              >
+                <LogOut className="w-3.5 h-3.5 shrink-0" />
+                <span>{isSigningOut ? 'Saindo...' : 'Sair da conta'}</span>
+              </button>
+            )}
           </div>
         </div>
       </section>
@@ -669,28 +721,38 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full md:w-auto shrink-0">
+                    <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2 w-full md:w-auto shrink-0">
                       <button
                         type="button"
-                        disabled={locked || busy}
-                        onClick={() => void handleToggleRole(account)}
-                        className="min-h-[44px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 disabled:opacity-40 transition-colors whitespace-nowrap flex items-center justify-center"
+                        onClick={() => void handleOpenUserHistory(account)}
+                        className="min-h-[44px] px-3 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/70 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-xs font-semibold text-emerald-800 dark:text-emerald-200 transition-colors whitespace-nowrap inline-flex items-center justify-center gap-1.5"
                       >
-                        {account.role === 'admin' ? 'Remover Admin' : 'Promover a Admin'}
+                        <BookmarkCheck className="w-3.5 h-3.5 shrink-0" />
+                        <span>Ver histórico</span>
                       </button>
-                      <button
-                        type="button"
-                        disabled={locked || busy}
-                        onClick={() => void handleToggleStatus(account)}
-                        className={`min-h-[44px] px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1 disabled:opacity-40 transition-colors whitespace-nowrap ${
-                          account.status === 'blocked'
-                            ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
-                            : 'border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300'
-                        }`}
-                      >
-                        <Ban className="w-3.5 h-3.5 shrink-0" />
-                        <span>{account.status === 'blocked' ? 'Desbloquear' : 'Bloquear'}</span>
-                      </button>
+                      <div className="grid grid-cols-2 sm:flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={locked || busy}
+                          onClick={() => void handleToggleRole(account)}
+                          className="min-h-[44px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 disabled:opacity-40 transition-colors whitespace-nowrap flex items-center justify-center"
+                        >
+                          {account.role === 'admin' ? 'Remover Admin' : 'Promover a Admin'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={locked || busy}
+                          onClick={() => void handleToggleStatus(account)}
+                          className={`min-h-[44px] px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1 disabled:opacity-40 transition-colors whitespace-nowrap ${
+                            account.status === 'blocked'
+                              ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
+                              : 'border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300'
+                          }`}
+                        >
+                          <Ban className="w-3.5 h-3.5 shrink-0" />
+                          <span>{account.status === 'blocked' ? 'Desbloquear' : 'Bloquear'}</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -698,6 +760,162 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </div>
           )}
         </section>
+      )}
+
+      {/* Modal de histórico salvo do usuário */}
+      {historyTarget && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Histórico salvo de ${historyTarget.displayName}`}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setHistoryTarget(null);
+          }}
+        >
+          <div className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+            <div className="px-4 sm:px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="font-display text-xl font-bold text-slate-900 dark:text-slate-100 truncate">
+                  Histórico de {historyTarget.displayName}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                  {historyTarget.email}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistoryTarget(null)}
+                aria-label="Fechar histórico"
+                className="min-h-[44px] min-w-[44px] rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center justify-center shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="px-4 sm:px-5 pt-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setHistoryModalTab('analyses')}
+                  className={`min-h-[40px] px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    historyModalTab === 'analyses'
+                      ? 'bg-white dark:bg-slate-950 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  Análises 1X2 ({historyData?.analyses.length ?? historyTarget.analysesCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryModalTab('multiples')}
+                  className={`min-h-[40px] px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    historyModalTab === 'multiples'
+                      ? 'bg-white dark:bg-slate-950 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  Bilhetes ({historyData?.multiples.length ?? historyTarget.multiplesCount})
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-3">
+              {historyLoading ? (
+                <div className="py-10 text-center text-xs text-slate-500 dark:text-slate-400">
+                  Carregando histórico salvo no banco de dados...
+                </div>
+              ) : historyError ? (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-200">
+                  {historyError}
+                </div>
+              ) : historyModalTab === 'analyses' ? (
+                !historyData || historyData.analyses.length === 0 ? (
+                  <div className="py-10 text-center text-xs text-slate-500 dark:text-slate-400">
+                    Nenhuma análise 1X2 salva para este usuário até o momento.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {historyData.analyses.map((item) => (
+                      <div key={item.id} className="py-3 space-y-1">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                            {item.homeTeam.name} × {item.awayTeam.name}
+                          </span>
+                          <span className="font-mono text-xs text-slate-600 dark:text-slate-300 tabular-nums">
+                            Placar provável: {item.mostLikelyScore}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                          <span>
+                            {item.competition} ·{' '}
+                            {new Intl.DateTimeFormat('pt-BR', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            }).format(new Date(item.createdAt))}
+                          </span>
+                          <span className="font-mono">
+                            {item.predictedHomePct}% / {item.predictedDrawPct}% / {item.predictedAwayPct}%
+                            {item.actualScore
+                              ? ` · Real: ${item.actualScore.homeGoals}x${item.actualScore.awayGoals}`
+                              : ''}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              ) : !historyData || historyData.multiples.length === 0 ? (
+                <div className="py-10 text-center text-xs text-slate-500 dark:text-slate-400">
+                  Nenhum bilhete ou múltipla salva para este usuário até o momento.
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {historyData.multiples.map((slip) => (
+                    <div key={slip.id} className="py-3 space-y-1">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {slip.competition}
+                        </span>
+                        <span
+                          className={`text-xs font-semibold ${
+                            slip.status === 'won'
+                              ? 'text-emerald-700 dark:text-emerald-400'
+                              : slip.status === 'lost'
+                                ? 'text-rose-600 dark:text-rose-400'
+                                : 'text-amber-600 dark:text-amber-400'
+                          }`}
+                        >
+                          {slip.status === 'won'
+                            ? 'Ganha'
+                            : slip.status === 'lost'
+                              ? 'Perdida'
+                              : 'Pendente'}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                        <span>
+                          {slip.legs.length} {slip.legs.length === 1 ? 'jogo' : 'jogos'} ·{' '}
+                          {new Intl.DateTimeFormat('pt-BR', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          }).format(new Date(slip.createdAt))}
+                        </span>
+                        <span className="font-mono">
+                          Odd @{slip.totalOdd.toFixed(2)} · R$ {slip.stake.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

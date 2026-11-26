@@ -21,6 +21,7 @@ import {
   SlidersHorizontal,
   Sun,
   Ticket,
+  User as UserIcon,
   X,
 } from 'lucide-react';
 import {
@@ -39,6 +40,9 @@ import {
   DEFAULT_SEARCH_PREFERENCES,
   deleteUserAnalysis,
   deleteUserMultiple,
+  ensureBootstrappedAdminGrant,
+  getUserPrimaryEmail,
+  isBootstrappedAdminEmail,
   migrateLocalDataToFirestore,
   sanitizeDocId,
   saveUserPreferences,
@@ -62,6 +66,7 @@ import { ModulesView } from './components/ModulesView.tsx';
 import { HistoryView } from './components/HistoryView.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
 import { AdminView } from './components/AdminView.tsx';
+import { ProfileView } from './components/ProfileView.tsx';
 import {
   BettingMenuView,
   type BetSlipSelection,
@@ -104,6 +109,7 @@ type AppTab =
   | 'modules'
   | 'history'
   | 'settings'
+  | 'profile'
   | 'admin';
 type ThemeMode = 'light' | 'dark';
 
@@ -232,6 +238,7 @@ export default function App() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [firestoreError, setFirestoreError] = useState<Error | null>(null);
 
@@ -239,6 +246,9 @@ export default function App() {
     DEFAULT_APP_GLOBAL_CONFIG
   );
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminCheckDoneForUid, setAdminCheckDoneForUid] = useState<string | null>(
+    null
+  );
   const [userAccount, setUserAccount] = useState<UserAccountRecord | null>(null);
   const [notificationsList, setNotificationsList] = useState<InAppNotificationItem[]>(
     []
@@ -330,13 +340,36 @@ export default function App() {
       if (!user) {
         migratedUidRef.current = null;
         setIsAdmin(false);
+        setAdminCheckDoneForUid(null);
         setUserAccount(null);
+      } else if (
+        user.emailVerified &&
+        isBootstrappedAdminEmail(getUserPrimaryEmail(user))
+      ) {
+        setIsAdmin(true);
+        setAdminCheckDoneForUid(user.uid);
       } else {
-        void checkUserIsAdmin(user).then((flag) => setIsAdmin(flag));
+        void checkUserIsAdmin(user).then((flag) => {
+          setIsAdmin(flag);
+          setAdminCheckDoneForUid(user.uid);
+        });
       }
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (
+      authUser &&
+      adminCheckDoneForUid === authUser.uid &&
+      !isAdmin &&
+      activeTab === 'admin'
+    ) {
+      setActiveTab('profile');
+    } else if ((!authUser || isAdmin) && activeTab === 'profile') {
+      setActiveTab(isAdmin ? 'admin' : 'analyzer');
+    }
+  }, [authUser, adminCheckDoneForUid, isAdmin, activeTab]);
 
   useEffect(() => {
     if (!isAuthReady || !authUser || !authUser.emailVerified) {
@@ -353,6 +386,7 @@ export default function App() {
           analysesCount: historyRef.current.length,
           multiplesCount: multipleHistoryRef.current.length,
         });
+        await ensureBootstrappedAdminGrant(authUser);
         if (migratedUidRef.current !== uid) {
           migratedUidRef.current = uid;
           await migrateLocalDataToFirestore(uid, {
@@ -375,7 +409,10 @@ export default function App() {
 
     const unsubAccount = subscribeCurrentUserAccount(uid, (acc) => {
       setUserAccount(acc);
-      if (acc?.role === 'admin') {
+      if (
+        acc?.role === 'admin' ||
+        isBootstrappedAdminEmail(getUserPrimaryEmail(authUser))
+      ) {
         setIsAdmin(true);
       }
     });
@@ -449,12 +486,39 @@ export default function App() {
 
   const handleSignOut = useCallback(async () => {
     setAuthError(null);
+    setIsSigningOut(true);
     try {
       await signOutFirebase();
+      migratedUidRef.current = null;
+      setIsAdmin(false);
+      setAdminCheckDoneForUid(null);
+      setUserAccount(null);
+      setHistory([]);
+      setMultipleHistory([]);
+      try {
+        localStorage.removeItem(STORAGE_HISTORY_KEY);
+        localStorage.removeItem(STORAGE_MULTIPLE_HISTORY_KEY);
+      } catch {
+        // Ignore storage errors
+      }
+      setIsMobileMoreOpen(false);
+      setActiveTab((prev) =>
+        prev === 'profile' || prev === 'admin' ? 'analyzer' : prev
+      );
+      pushNotification(
+        {
+          title: 'Sessão encerrada',
+          message: 'Você saiu da sua conta com segurança.',
+          category: 'system',
+        },
+        true
+      );
     } catch {
       setAuthError('Não foi possível encerrar a sessão agora.');
+    } finally {
+      setIsSigningOut(false);
     }
-  }, []);
+  }, [pushNotification]);
 
   const [homeTeamInput, setHomeTeamInput] = useState('Flamengo');
   const [awayTeamInput, setAwayTeamInput] = useState('Palmeiras');
@@ -721,11 +785,55 @@ export default function App() {
           throw new Error(json.error || 'Não foi possível concluir a análise.');
         }
         const payload = json as AnalysisResponsePayload;
-        setAnalysis(payload);
-        setContextDelta({
+        const initialDelta = {
           home: payload.data.module5Context.contextualImpactHome ?? 0,
           away: payload.data.module5Context.contextualImpactAway ?? 0,
-        });
+        };
+        setAnalysis(payload);
+        setContextDelta(initialDelta);
+
+        const docId = sanitizeDocId(payload.id);
+        const alreadySaved = historyRef.current.some(
+          (item) => sanitizeDocId(item.id) === docId
+        );
+        if (!alreadySaved) {
+          const initialModel = calculatePoissonModel(
+            payload.data,
+            settingsRef.current,
+            {
+              homeDelta: initialDelta.home,
+              awayDelta: initialDelta.away,
+            }
+          );
+          const autoEntry: PredictionHistoryItem = {
+            id: docId,
+            createdAt: new Date().toISOString(),
+            updatedAt: payload.updatedAt,
+            competition: payload.data.competition,
+            homeTeam: payload.data.homeTeam,
+            awayTeam: payload.data.awayTeam,
+            predictedHomePct: initialModel.homeWinPct,
+            predictedDrawPct: initialModel.drawPct,
+            predictedAwayPct: initialModel.awayWinPct,
+            expectedGoalsHome: initialModel.expectedGoalsHome,
+            expectedGoalsAway: initialModel.expectedGoalsAway,
+            mostLikelyScore: `${initialModel.mostLikelyScore.homeGoals} x ${initialModel.mostLikelyScore.awayGoals}`,
+            over25Pct: initialModel.over25Pct,
+            bttsPct: initialModel.bttsPct,
+            snapshot: payload,
+          };
+          const nextHistory = [autoEntry, ...historyRef.current];
+          historyRef.current = nextHistory;
+          setHistory(nextHistory);
+          const user = authUserRef.current;
+          if (user && user.emailVerified) {
+            void createUserAnalysis(user.uid, autoEntry).catch((err) =>
+              setFirestoreError(
+                err instanceof Error ? err : new Error(String(err))
+              )
+            );
+          }
+        }
       } catch (err: any) {
         setAnalyzeError(
           err?.message || 'Erro ao consultar dados atualizados na Internet.'
@@ -776,7 +884,8 @@ export default function App() {
 
   const isSavedInHistory = useMemo(() => {
     if (!analysis) return false;
-    return history.some((item) => item.id === analysis.id);
+    const targetId = sanitizeDocId(analysis.id);
+    return history.some((item) => sanitizeDocId(item.id) === targetId);
   }, [analysis, history]);
 
   const handleSaveToHistory = () => {
@@ -1579,6 +1688,9 @@ export default function App() {
     [runAnalysis]
   );
 
+  const showProfileMenu = Boolean(authUser && !isAdmin);
+  const showAdminMenu = !authUser || isAdmin;
+
   const navItems: {
     id: AppTab;
     label: string;
@@ -1594,7 +1706,12 @@ export default function App() {
     { id: 'modules', label: 'Modelos', icon: Layers },
     { id: 'history', label: 'Histórico', icon: BookmarkCheck },
     { id: 'settings', label: 'Ajustes', icon: SlidersHorizontal },
-    { id: 'admin', label: 'Admin', icon: ShieldCheck },
+    ...(showProfileMenu
+      ? [{ id: 'profile' as AppTab, label: 'Perfil', icon: UserIcon }]
+      : []),
+    ...(showAdminMenu
+      ? [{ id: 'admin' as AppTab, label: 'Admin', icon: ShieldCheck }]
+      : []),
   ];
 
   const mobilePrimaryTabIds: AppTab[] = [
@@ -1660,7 +1777,7 @@ export default function App() {
               e.preventDefault();
               selectTab('analyzer');
             }}
-            className="font-display text-xl lg:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap shrink-0 truncate max-w-[155px] sm:max-w-[220px]"
+            className="font-display text-lg sm:text-xl lg:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap shrink-0 truncate max-w-[122px] min-[380px]:max-w-[155px] sm:max-w-[220px]"
           >
             {globalConfig.appName || 'CampoStats'}
           </a>
@@ -1690,19 +1807,51 @@ export default function App() {
           </nav>
 
           {/* Header Controls: Google Cloud Account + Theme Toggle */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {authUser ? (
-              <button
-                type="button"
-                onClick={handleSignOut}
-                title={`Conectado como ${authUser.email || authUser.displayName || 'usuário'} · Toque para sair`}
-                className="min-h-[44px] px-2.5 sm:px-3 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/70 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-              >
-                <span className="max-w-[96px] truncate">
-                  {authUser.displayName?.split(' ')[0] || 'Conta'}
-                </span>
-                <LogOut className="w-3.5 h-3.5 shrink-0" />
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => selectTab(isAdmin ? 'admin' : 'profile')}
+                  title={
+                    isAdmin
+                      ? `Painel Admin (${authUser.email || ''})`
+                      : `Abrir meu perfil (${authUser.email || ''})`
+                  }
+                  className={`min-h-[44px] px-2 sm:px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                    activeTab === 'profile' || (isAdmin && activeTab === 'admin')
+                      ? 'border-emerald-600 dark:border-emerald-500 bg-emerald-100/80 dark:bg-emerald-950 text-emerald-900 dark:text-emerald-100'
+                      : 'border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/70 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200'
+                  }`}
+                >
+                  {authUser.photoURL ? (
+                    <img
+                      src={authUser.photoURL}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                      className="w-5 h-5 rounded-md object-cover shrink-0"
+                    />
+                  ) : (
+                    <UserIcon className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span className="max-w-[68px] sm:max-w-[96px] truncate">
+                    {(userAccount?.displayName || authUser.displayName || 'Perfil').split(' ')[0]}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  disabled={isSigningOut}
+                  aria-label="Sair da conta"
+                  title="Sair da conta"
+                  className="inline-flex min-h-[44px] min-w-[44px] px-2 sm:px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 hover:border-rose-200 dark:hover:border-rose-900/70 hover:text-rose-700 dark:hover:text-rose-300 text-slate-600 dark:text-slate-300 text-xs font-semibold items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
+                >
+                  <LogOut className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden md:inline">
+                    {isSigningOut ? 'Saindo...' : 'Sair'}
+                  </span>
+                </button>
+              </>
             ) : (
               <button
                 type="button"
@@ -2242,6 +2391,7 @@ export default function App() {
             historyCount={history.length}
             multipleHistory={multipleHistory}
             isSigningIn={isSigningIn}
+            isSigningOut={isSigningOut}
             authError={authError}
             onSignInGoogle={handleSignInGoogle}
             onSignOut={handleSignOut}
@@ -2259,17 +2409,42 @@ export default function App() {
               )
             }
             onOpenAdmin={() => setActiveTab('admin')}
+            onOpenProfile={() => setActiveTab('profile')}
           />
         )}
 
-        {/* TAB 7: ADMIN */}
+        {/* TAB 7: PERFIL (Somente usuários não administradores quando logados) */}
+        {activeTab === 'profile' && authUser && !isAdmin && (
+          <ProfileView
+            authUser={authUser}
+            userAccount={userAccount}
+            settings={settings}
+            theme={theme}
+            bettingEnabled={globalConfig.bettingMenuEnabled}
+            history={history}
+            multipleHistory={multipleHistory}
+            isSigningOut={isSigningOut}
+            onChangeTheme={setTheme}
+            onSignOut={handleSignOut}
+            onOpenHistory={(sec) => {
+              setHistoryInitialSection(sec);
+              setActiveTab('history');
+            }}
+            onOpenSettings={() => setActiveTab('settings')}
+            onOpenBetting={() => setActiveTab('betting')}
+          />
+        )}
+
+        {/* TAB 8: ADMIN */}
         {activeTab === 'admin' && (
           <AdminView
             authUser={authUser}
             isAdmin={isAdmin}
             isSigningIn={isSigningIn}
+            isSigningOut={isSigningOut}
             globalConfig={globalConfig}
             onSignInGoogle={handleSignInGoogle}
+            onSignOut={handleSignOut}
           />
         )}
       </main>
@@ -2310,7 +2485,9 @@ export default function App() {
                     ? 'Analisador estatístico, 5 módulos e matriz de Poisson'
                     : item.id === 'settings'
                       ? 'Painel do usuário, pesquisa de jogos e notificações'
-                      : 'Configurações globais e gerenciamento de usuários';
+                      : item.id === 'profile'
+                        ? 'Sua conta, nome de exibição, resumo de acertos e sincronização'
+                        : 'Configurações globais e gerenciamento de usuários';
                 return (
                   <button
                     key={item.id}
@@ -2341,6 +2518,26 @@ export default function App() {
                 );
               })}
             </div>
+
+            {authUser && (
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  disabled={isSigningOut}
+                  className="w-full min-h-[48px] px-3.5 py-2.5 rounded-2xl border border-rose-200 dark:border-rose-900/70 bg-rose-50/70 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-950/70 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center justify-between gap-3 transition-colors disabled:opacity-60"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <LogOut className="w-4 h-4 shrink-0" />
+                    <span className="truncate">
+                      {isSigningOut
+                        ? 'Encerrando sessão...'
+                        : `Sair da conta (${authUser.email || 'Google'})`}
+                    </span>
+                  </div>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
